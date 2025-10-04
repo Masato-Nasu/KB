@@ -56,8 +56,6 @@
   </div>
 
   <audio id="player" preload="metadata" playsinline></audio>
-  <!-- added: chime audio -->
-  <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto" playsinline></audio>
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
     /* ========= Visualizer (中身だけ強化／UIは不変更) ========= */
@@ -112,44 +110,49 @@
       }
     }
 
-    function step(active=true){
-      if(!active) return;
-      const U2=new Float32Array(U.length), V2=new Float32Array(V.length);
-      const lvl=audio.levelSmooth;
-
-      const targetFeed=flashFeed + lvl*CFG.levelFeedGain;
-      const targetKill=flashKill + lvl*CFG.levelKillGain;
-      feedMod += (targetFeed - feedMod)*CFG.paramSlew;
-      killMod += (targetKill - killMod)*CFG.paramSlew;
-
-      const f=CFG.baseF + feedMod, k=CFG.baseK + killMod;
-      const spread=CFG.spreadBase + lvl*CFG.spreadAdd;
-      const duNow=du*(1+lvl*CFG.duVar), dvNow=dv*(1+lvl*CFG.dvVar);
-
-      flashFeed*=0.92; flashKill*=0.92;
-
-      for(let i=0;i<U.length;i++){
-        const y=(i/size)|0, x=i%size, u=U[i], v=V[i];
-        const Lu=lap(U,x,y)*spread, Lv=lap(V,x,y)*spread;
-        U2[i]=u+(duNow*Lu - u*v*v + f*(1-u));
-        V2[i]=v+(dvNow*Lv + u*v*v - (f+k)*v);
-      }
+    function step(active=true){ /* no-op: procedural pattern */ }
       enforceSym(U2,V2); U=U2; V=V2;
     }
 
     let clickPulseUntil=0;
+    
     function draw(){
       const d=imageData.data, now=performance.now();
+      const tSec = now * 0.001;
       const pulseBoost = now<clickPulseUntil ? CFG.clickPulseGain : 0;
-      const kToneBase=CFG.kToneMin + audio.levelSmooth*CFG.kToneRange;
+      const lvl = audio.levelSmooth;
+
+      // keep original tone/whiteness handling
+      const kToneBase=CFG.kToneMin + lvl*CFG.kToneRange;
       const kTone=kToneBase*(1+pulseBoost);
       const norm=x=>Math.max(0,Math.min(1,x));
       const tone=x=>(1-Math.exp(-kTone*x))/(1-Math.exp(-kTone));
+
+      // palette transition
       const progress=Math.min(1,(now-transitionStart)/CFG.transitionMs);
       for(let i=0;i<3;i++) colorCurrent[i]=lerp(colorPrev[i],colorTarget[i],progress);
 
-      for(let i=0;i<U.length;i++){
-        const base=norm((U[i]-V[i])*1.0), t=tone(base);
+      const n = parseInt(CFG.symmetry||'6',10); // petals
+      const f1 = 8 + lvl*12 + pulseBoost*10;
+      const f2 = 3 + lvl*4;
+      const s1 = 0.9 + lvl*1.2;
+      const s2 = 0.6 + lvl*1.0;
+
+      for(let i=0;i<imageData.data.length/4;i++){
+        const y=(i/size)|0, x=i%size;
+        const fx = (x + 0.5 - size/2) / (size/2);
+        const fy = (y + 0.5 - size/2) / (size/2);
+        const r = Math.hypot(fx, fy);
+        const ang = Math.atan2(fy, fx);
+
+        const petal = Math.cos(ang * n);
+        const wave1 = Math.sin(f1 * r - tSec * s1);
+        const wave2 = Math.sin(f2 * (r*r*8 + petal*2) + tSec * s2);
+
+        let base = 0.5 + 0.5 * (0.62*wave1 + 0.38*wave2);
+        base = Math.min(1, Math.max(0, base));
+
+        const t=tone(base);
         const c=(Math.min(t,0.985)*255)|0, p=i*4;
         if(c>=CFG.whiteLevel){
           const tint=CFG.whiteTint;
@@ -168,6 +171,10 @@
       ctx.putImageData(imageData,0,0);
     }
 
+      }
+      ctx.putImageData(imageData,0,0);
+    }
+
     (function loop(){
       const now=performance.now(), active=(now-audio.lastLoudAt)<CFG.quietHoldMs;
       step(active); draw(); requestAnimationFrame(loop);
@@ -182,19 +189,7 @@
     function changeColorRandom(){ colorPrev=[...colorCurrent]; colorTarget=pickRandomDifferent(colorTarget); transitionStart=performance.now(); }
     function triggerFlashPulse(){ flashFeed+=CFG.clickFlashFeed; flashKill+=CFG.clickFlashKill; clickPulseUntil=performance.now()+CFG.clickPulseMs; if('vibrate'in navigator) try{navigator.vibrate(20);}catch{} }
 
-    
-
-    // added: chime playback helper
-    function playChime(){
-      try{
-        const chime=document.getElementById('chime');
-        if(!chime) return;
-        chime.currentTime=0;
-        chime.play().catch(()=>{});
-      }catch(e){}
-    }
-
-    canvas.addEventListener('click', ()=>{ changeColorRandom(); triggerFlashPulse(); playChime(); playChime(); });
+    canvas.addEventListener('click', ()=>{ changeColorRandom(); triggerFlashPulse(); });
 
     /* ========= Shake (UI変更なし) ========= */
     let lastShake=0, lastAx=0, lastAy=0, lastAz=0;
@@ -315,24 +310,6 @@
     if('serviceWorker' in navigator){
       window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
     }
-  
-    // added: unlock audio on first user gesture (for PWA / iOS)
-    let audioUnlocked = false;
-    async function unlockAudioOnce(){
-      if(audioUnlocked) return;
-      audioUnlocked = true;
-      try{ ensureGraph && ensureGraph(); }catch{}
-      try{ if(audioCtx && audioCtx.state !== 'running') await audioCtx.resume(); }catch{}
-      try{
-        const chime=document.getElementById('chime'); if(!chime) return;
-        const vol=chime.volume; chime.volume=0.0;
-        await chime.play(); chime.pause(); chime.currentTime=0; chime.volume=vol;
-      }catch{}
-    }
-    ['pointerdown','touchstart','keydown','mousedown'].forEach(ev=>{
-      window.addEventListener(ev, unlockAudioOnce, { once:true, passive:true });
-    });
-
   </script>
 </body>
 </html>

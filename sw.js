@@ -6,8 +6,7 @@ self.addEventListener('install', event => {
         './index.html',
         './manifest.json',
         './babyface-192.png',
-        './babyface-512.png',
-        './Sparkling Chime Sound.m4a'
+        './babyface-512.png'
       ]);
     })
   );
