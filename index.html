@@ -57,7 +57,7 @@
 
   <audio id="player" preload="metadata" playsinline></audio>
   <!-- added: chime audio -->
-  <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto"></audio>
+  <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto" playsinline></audio>
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
     /* ========= Visualizer (中身だけ強化／UIは不変更) ========= */
@@ -315,6 +315,24 @@
     if('serviceWorker' in navigator){
       window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
     }
+  
+    // added: unlock audio on first user gesture (for PWA / iOS)
+    let audioUnlocked = false;
+    async function unlockAudioOnce(){
+      if(audioUnlocked) return;
+      audioUnlocked = true;
+      try{ ensureGraph && ensureGraph(); }catch{}
+      try{ if(audioCtx && audioCtx.state !== 'running') await audioCtx.resume(); }catch{}
+      try{
+        const chime=document.getElementById('chime'); if(!chime) return;
+        const vol=chime.volume; chime.volume=0.0;
+        await chime.play(); chime.pause(); chime.currentTime=0; chime.volume=vol;
+      }catch{}
+    }
+    ['pointerdown','touchstart','keydown','mousedown'].forEach(ev=>{
+      window.addEventListener(ev, unlockAudioOnce, { once:true, passive:true });
+    });
+
   </script>
 </body>
 </html>
