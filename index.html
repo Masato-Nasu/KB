@@ -15,69 +15,82 @@
     #hint.hide{display:none}
   </style>
   <script>
+    // Service Worker
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=4');
+      navigator.serviceWorker.register('./sw.js?v=3');
     }
   </script>
 </head>
 <body>
+  <!-- 見えないUI。初回タップで権限を取って消える -->
   <div id="hint" class="center">
     <div>
       <div style="font-size:1.2rem">画面をタップすると準備完了</div>
-      <div style="opacity:.75;font-size:.95rem">その後、スマホを<strong>振る</strong>と「チャイム音」＋色変化</div>
+      <div style="opacity:.75;font-size:.95rem">その後、スマホを<strong>振る</strong>か<strong>画面をタップ</strong>で「チャイム音」＋色変化</div>
     </div>
   </div>
 
+  <!-- 実音源（ユーザーが提供した .m4a） -->
   <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto"></audio>
 
   <script>
   (function(){
     const audioEl = document.getElementById('chime');
     const hint = document.getElementById('hint');
+
     let lastShake = 0;
     let permissionGranted = false;
+    let primed = false;
 
+    // iOS 13+ 用: ジャイロ/加速度の権限
     async function ensureMotionPermission(){
       try{
         if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
           const state = await DeviceMotionEvent.requestPermission();
           permissionGranted = (state === 'granted');
         }else{
-          permissionGranted = true;
+          permissionGranted = true; // Android/PC など
         }
       }catch(e){
         permissionGranted = true;
       }
     }
 
-    async function playChime(force=false){
-      try {
-        const el = force ? audioEl : audioEl.cloneNode();
-        await el.play();
-      } catch(e) {
-        console.log('再生失敗', e);
-      }
+    // Audio の解錠（ユーザー操作で一度 play→即停止）
+    async function unlockAudio(){
+      try{
+        await audioEl.play();
+        audioEl.pause();
+        audioEl.currentTime = 0;
+      }catch(e){}
     }
 
-    async function prime(){
-      document.removeEventListener('click', prime);
+    // 初回タップで権限＋Audio解錠
+    function prime(){
+      if (primed) return;
+      primed = true;
+
+      // 以後、画面タップでもチャイムを鳴らす（最小変更）
+      window.addEventListener('pointerdown', onShake, {passive:true});
+
       document.removeEventListener('touchend', prime, {passive:true});
-      await ensureMotionPermission();
-      await playChime(true);
+      document.removeEventListener('click', prime);
+
+      ensureMotionPermission();
+      unlockAudio();
       hint.classList.add('hide');
-      console.log('Audio/センサー解錠完了');
     }
-
-    document.addEventListener('click', prime);
     document.addEventListener('touchend', prime, {passive:true});
+    document.addEventListener('click', prime);
 
+    // シンプルなシェイク検出
     window.addEventListener('devicemotion', (e)=>{
       if(!permissionGranted) return;
       const a = e.accelerationIncludingGravity || e.acceleration;
       if(!a) return;
       const m = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
       const now = performance.now();
-      if (m > 15 && (now - lastShake) > 800) {
+      if (m > 15 && (now - lastShake) > 800) { // 0.8s クールダウン
         onShake();
         lastShake = now;
       }
@@ -86,8 +99,17 @@
     function onShake(){
       playChime();
       spinColor();
+      window.dispatchEvent(new Event('shake'));
     }
 
+    function playChime(){
+      try{
+        const el = audioEl.cloneNode();
+        el.play().catch(()=>{});
+      }catch(e){}
+    }
+
+    // 背景色をランダムに（既存UIに干渉しない最小限の演出）
     function spinColor(){
       const h = Math.floor(Math.random()*360);
       const s = 82, l = 52;
@@ -95,6 +117,10 @@
       document.documentElement.style.setProperty('--fg', `rgba(255,255,255,.92)`);
     }
 
+    // ページ復帰時に Audio を再解錠（端末によっては必要）
+    document.addEventListener('visibilitychange', ()=>{
+      if (!document.hidden) unlockAudio();
+    });
   })();
   </script>
 </body>
