@@ -4,11 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
   <title>KaleidoBaby Visualizer</title>
-  <link rel="manifest" href="./manifest.json">
-  <link rel="icon" href="./icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="./icon-512.png">
-  <meta name="theme-color" content="#000000">
-  <meta name="apple-mobile-web-app-capable" content="yes">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
   <style>
@@ -18,7 +13,6 @@
 </head>
 <body>
 <script>
-// Gray-Scott reaction-diffusion setup
 let N = 200;
 let U = new Float32Array(N*N);
 let V = new Float32Array(N*N);
@@ -67,15 +61,20 @@ function draw() {
       let i = x + y*N;
       let c = Math.max(0, Math.min(1, (U[i] - V[i]) * 1.2)) * 255;
       let k = (x + y*N)*4;
-      if (c > 240) {
-        let col = random(rainbowColors);
-        img.pixels[k]   = col[0];
-        img.pixels[k+1] = col[1];
-        img.pixels[k+2] = col[2];
-        img.pixels[k+3] = 255;
+
+      if (c > 250) {
+        if (colorIndex === -1) {
+          d[k] = d[k+1] = d[k+2] = 255; // 白
+        } else {
+          const col = rainbowColors[colorIndex];
+          d[k]   = col[0];
+          d[k+1] = col[1];
+          d[k+2] = col[2];
+        }
+        d[k+3] = 255;
       } else {
-        img.pixels[k] = img.pixels[k+1] = img.pixels[k+2] = c;
-        img.pixels[k+3] = 255;
+        d[k] = d[k+1] = d[k+2] = c;
+        d[k+3] = 255;
       }
     }
   }
@@ -83,16 +82,12 @@ function draw() {
   image(img, 0, 0, width, height);
 }
 
-// ==== 音と振動検出 ====
+// ==== 音と色切り替え ====
 let synth = new Tone.Synth().toDestination();
+let colorIndex = -1; // -1 = 白
 let rainbowColors = [
-  [255,0,0],
-  [255,165,0],
-  [255,255,0],
-  [0,255,0],
-  [0,0,255],
-  [75,0,130],
-  [238,130,238]
+  [255,0,0],[255,165,0],[255,255,0],
+  [0,255,0],[0,0,255],[75,0,130],[238,130,238]
 ];
 let shakeTriggered = false;
 
@@ -101,30 +96,25 @@ function handleMotion(e) {
   let magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
   if (magnitude > 25) {
     if (!shakeTriggered) {
-      synth.triggerAttackRelease("C4", "8n");
+      synth.triggerAttackRelease("C4", "8n"); // 音を鳴らす
+      // 色を次に進める
+      colorIndex++;
+      if (colorIndex >= rainbowColors.length) colorIndex = -1; // 白に戻る
       shakeTriggered = true;
       setTimeout(()=> shakeTriggered=false, 500);
     }
   }
 }
+
+// iOS用の許可リクエスト
 if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
   window.addEventListener('click', ()=>{
-    DeviceMotionEvent.requestPermission().then(response=>{
-      if(response==="granted"){
-        window.addEventListener("devicemotion", handleMotion);
-      }
+    DeviceMotionEvent.requestPermission().then(res=>{
+      if(res==="granted") window.addEventListener("devicemotion", handleMotion);
     });
   }, {once:true});
 } else {
   window.addEventListener("devicemotion", handleMotion);
-}
-</script>
-
-<script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=1')
-    .then(reg => console.log('Service Worker registered', reg))
-    .catch(err => console.log('SW registration failed', err));
 }
 </script>
 </body>
