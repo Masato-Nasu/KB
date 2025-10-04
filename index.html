@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <title>KaleidoBaby Visualizer</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="./icon-512.png">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
+  <style>
+    body { margin:0; overflow:hidden; background:black; }
+    canvas { display:block; }
+  </style>
+</head>
+<body>
+<script>
+// Gray-Scott reaction-diffusion setup
+let N = 200;
+let U = new Float32Array(N*N);
+let V = new Float32Array(N*N);
+let U_prev = new Float32Array(N*N);
+let V_prev = new Float32Array(N*N);
+let img;
+
+let dU = 0.16;
+let dV = 0.08;
+let f = 0.035;
+let k = 0.065;
+
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  pixelDensity(1);
+  img = createImage(N, N);
+  for (let i = 0; i < N*N; i++) {
+    U[i] = 1; V[i] = 0;
+  }
+  for (let y = N/2-10; y < N/2+10; y++) {
+    for (let x = N/2-10; x < N/2+10; x++) {
+      let i = x + y*N;
+      V[i] = 1;
+    }
+  }
+}
+
+function draw() {
+  for (let y = 1; y < N-1; y++) {
+    for (let x = 1; x < N-1; x++) {
+      let i = x + y*N;
+      let lapU = U[(x-1)+y*N] + U[(x+1)+y*N] + U[x+(y-1)*N] + U[x+(y+1)*N] - 4*U[i];
+      let lapV = V[(x-1)+y*N] + V[(x+1)+y*N] + V[x+(y-1)*N] + V[x+(y+1)*N] - 4*V[i];
+      let du = dU * lapU - U[i]*V[i]*V[i] + f*(1-U[i]);
+      let dv = dV * lapV + U[i]*V[i]*V[i] - (f+k)*V[i];
+      U_prev[i] = U[i] + du;
+      V_prev[i] = V[i] + dv;
+    }
+  }
+  [U, U_prev] = [U_prev, U];
+  [V, V_prev] = [V_prev, V];
+
+  img.loadPixels();
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      let i = x + y*N;
+      let c = Math.max(0, Math.min(1, (U[i] - V[i]) * 1.2)) * 255;
+      let k = (x + y*N)*4;
+      if (c > 240) {
+        let col = random(rainbowColors);
+        img.pixels[k]   = col[0];
+        img.pixels[k+1] = col[1];
+        img.pixels[k+2] = col[2];
+        img.pixels[k+3] = 255;
+      } else {
+        img.pixels[k] = img.pixels[k+1] = img.pixels[k+2] = c;
+        img.pixels[k+3] = 255;
+      }
+    }
+  }
+  img.updatePixels();
+  image(img, 0, 0, width, height);
+}
+
+// ==== 音と振動検出 ====
+let synth = new Tone.Synth().toDestination();
+let rainbowColors = [
+  [255,0,0],
+  [255,165,0],
+  [255,255,0],
+  [0,255,0],
+  [0,0,255],
+  [75,0,130],
+  [238,130,238]
+];
+let shakeTriggered = false;
+
+function handleMotion(e) {
+  let acc = e.accelerationIncludingGravity;
+  let magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
+  if (magnitude > 25) {
+    if (!shakeTriggered) {
+      synth.triggerAttackRelease("C4", "8n");
+      shakeTriggered = true;
+      setTimeout(()=> shakeTriggered=false, 500);
+    }
+  }
+}
+if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+  window.addEventListener('click', ()=>{
+    DeviceMotionEvent.requestPermission().then(response=>{
+      if(response==="granted"){
+        window.addEventListener("devicemotion", handleMotion);
+      }
+    });
+  }, {once:true});
+} else {
+  window.addEventListener("devicemotion", handleMotion);
+}
+</script>
+
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js?v=1')
+    .then(reg => console.log('Service Worker registered', reg))
+    .catch(err => console.log('SW registration failed', err));
+}
+</script>
+</body>
+</html>
