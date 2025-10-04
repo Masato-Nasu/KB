@@ -3,37 +3,35 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>KaleidoBaby Player — Folder Ready</title>
+  <title>Gray-Scott Visualizer — Wake Lock + Media Session</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <meta name="theme-color" content="#000000">
   <style>
     html, body { height: 100%; }
-    body {
-      margin: 0; background: #000; color: #fff;
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      display: flex; flex-direction: column; align-items: center; padding: 16px;
-    }
-    canvas { width: 100%; max-width: 520px; aspect-ratio: 1/1;
-             border-radius: 10px; background: #000; opacity: 0;
-             transition: opacity .8s ease; pointer-events: none; }
+    body { margin: 0; background: #000; color: #fff; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+           display: flex; flex-direction: column; align-items: center; padding: 16px; }
+    canvas { background: #000; width: 100%; max-width: 520px; aspect-ratio: 1 / 1;
+             border-radius: 8px; opacity: 0; transition: opacity .8s ease; pointer-events: none; }
     canvas.active { opacity: 1; pointer-events: auto; }
-    #controls { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 520px; margin-top: 16px; }
-    #lcd, button, label {
-      height: 48px; background: #111; border: 1px solid #444; border-radius: 10px;
-      color: #fff; font-size: 16px; display: flex; align-items: center; justify-content: center;
-      font-family: ui-monospace, monospace; cursor: pointer; white-space: nowrap;
-    }
-    #lcd span { animation: scroll 12s linear infinite; display: inline-block; }
-    @keyframes scroll { from {transform:translateX(100%);} to {transform:translateX(-100%);} }
-    input[type=file], audio { display: none; }
+    #controls { display: flex; flex-direction: column; align-items: stretch; width: 100%;
+                max-width: 520px; margin-top: 16px; gap: 8px; }
+    #lcd, button, label { height: 48px; background: #111; border: 1px solid #444; color: #fff;
+                          font-size: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+                          display: flex; align-items: center; justify-content: center; white-space: nowrap;
+                          cursor: pointer; padding: 0 12px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; }
+    #lcd small { opacity: .7; margin-left: 8px; font-size: 12px; }
+    #lcd span { display: inline-block; animation: scroll 12s linear infinite; }
+    @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+    input[type="file"] { display: none; }
+    audio { display: none; }
   </style>
 </head>
 <body>
   <canvas id="canvas"></canvas>
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
-    <label id="folderButton">SELECT MUSIC FOLDER / FILES</label>
+    <label id="folderButton" for="audioInput" for="audioInput">SELECT MUSIC FOLDER / FILES</label>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
     <button id="skipButton">NEXT</button>
@@ -41,90 +39,374 @@
     <input type="file" id="audioInput" accept="audio/*" multiple webkitdirectory>
   </div>
   <audio id="player" preload="metadata" playsinline></audio>
+  <!-- chime audio -->
+  <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto" playsinline></audio>
 
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-  const size = 400;
-  canvas.width = canvas.height = size;
-  const imageData = ctx.createImageData(size, size);
-  let U=new Float32Array(size*size).fill(1), V=new Float32Array(size*size).fill(0);
-  for(let y=size/2-10;y<size/2+10;y++)for(let x=size/2-10;x<size/2+10;x++)V[y*size+x]=1;
-  const du=0.16,dv=0.08; let flashFeed=0,flashKill=0;
-  function lap(f,x,y){return f[((y-1+size)%size)*size+x]+f[((y+1)%size)*size+x]+f[y*size+((x-1+size)%size)]+f[y*size+((x+1)%size)]-4*f[y*size+x];}
-  function step(){const U2=new Float32Array(U.length),V2=new Float32Array(V.length);
-    const f=0.02+flashFeed,k=0.05+flashKill;flashFeed*=0.9;flashKill*=0.9;
-    for(let i=0;i<U.length;i++){const y=Math.floor(i/size),x=i%size,u=U[i],v=V[i];
-      const Lu=lap(U,x,y)*1.2,Lv=lap(V,x,y)*1.2;
-      U2[i]=u+(du*Lu-u*v*v+f*(1-u));V2[i]=v+(dv*Lv+u*v*v-(f+k)*v);}
-    U=U2;V=V2;}
-  function draw(){const d=imageData.data;
-    for(let i=0;i<U.length;i++){const c=Math.min(255,Math.max(0,(U[i]-V[i])*255));
-      const p=i*4;d[p]=d[p+1]=d[p+2]=c;d[p+3]=255;}
-    ctx.putImageData(imageData,0,0);}
-  (function loop(){for(let i=0;i<2;i++)step();draw();requestAnimationFrame(loop);})();
-  canvas.addEventListener('click',()=>{flashFeed=0.02;flashKill=-0.01;});
+    /* ========= Visualizer ========= */
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const size = 500;
+    canvas.width = canvas.height = size;
+    const imageData = ctx.createImageData(size, size);
+    let canvasActivated = false;
 
-  const player=document.getElementById('player');
-  const lcdSpan=document.querySelector('#lcd span');
-  const lcd=t=>(lcdSpan.textContent=t);
+    let U = new Float32Array(size * size).fill(1);
+    let V = new Float32Array(size * size).fill(0);
+    for (let y = size / 2 - 16; y < size / 2 + 16; y++)
+      for (let x = size / 2 - 16; x < size / 2 + 16; x++)
+        V[y * size + x] = 1;
 
-  let playlist=[],urls=[],current=0,audioCtx,mediaSrc;
-  function ensureGraph(){if(audioCtx)return;
-    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-    mediaSrc=audioCtx.createMediaElementSource(player);
-    mediaSrc.connect(audioCtx.destination);
-  }
+    const du = 0.16, dv = 0.08;
+    let flashFeed = 0, flashKill = 0;
+    const pink = Array(8).fill(0);
+    function pinkNoise() {
+      let total = 0;
+      for (let i = 0; i < pink.length; i++) {
+        if (Math.random() < 1 / (1 << i)) pink[i] = Math.random() * 2 - 1;
+        total += pink[i];
+      }
+      return total / pink.length;
+    }
+    function lap(f, x, y) {
+      return f[((y - 1 + size) % size) * size + x] + f[((y + 1) % size) * size + x] +
+             f[y * size + ((x - 1 + size) % size)] + f[y * size + ((x + 1) % size)] - 4 * f[y * size + x];
+    }
+    function step() {
+      const U2 = new Float32Array(U.length), V2 = new Float32Array(V.length);
+      const t = performance.now() / 1000;
+      const f = 0.022 + pinkNoise() * 0.0015 + 0.0007 * Math.sin(t * Math.PI / 10) + flashFeed;
+      const k = 0.051 + pinkNoise() * 0.0015 + 0.0007 * Math.cos(t * Math.PI / 10) + flashKill;
+      flashFeed *= 0.85; flashKill *= 0.85;
+      for (let i = 0; i < U.length; i++) {
+        const y = Math.floor(i / size), x = i % size;
+        const u = U[i], v = V[i];
+        const Lu = lap(U, x, y) * 1.2;
+        const Lv = lap(V, x, y) * 1.2;
+        U2[i] = u + (du * Lu - u * v * v + f * (1 - u));
+        V2[i] = v + (dv * Lv + u * v * v - (f + k) * v);
+      }
+      U = U2; V = V2;
+    }
+    function draw() {
+      const d = imageData.data;
+      const kTone = 3.0;
+      const norm = x => Math.max(0, Math.min(1, x));
+      const tone = x => (1 - Math.exp(-kTone * x)) / (1 - Math.exp(-kTone));
+      for (let i = 0; i < U.length; i++) {
+        const base = norm((U[i] - V[i]) * 1.0);
+        const t = tone(base);
+        const capped = Math.min(t, 0.92);
+        const c = (capped * 255) | 0;
+        const p = i * 4;
+        d[p] = d[p + 1] = d[p + 2] = c; d[p + 3] = 255;
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+    (function loop(){ for (let i=0;i<3;i++) step(); draw(); requestAnimationFrame(loop); })();
+    canvas.addEventListener('click', ()=>{ flashFeed = 0.02; flashKill = -0.01; playChime(); });
 
-  function sortNumeric(files){
-    return files.sort((a,b)=>{
-      const ra=a.name.match(/\d+/),rb=b.name.match(/\d+/);
-      if(ra&&rb)return ra[0]-rb[0];
-      return a.name.localeCompare(b.name,'ja',{numeric:true});
-    });
-  }
-  function revokeAll(){urls.forEach(u=>URL.revokeObjectURL(u));urls=[];}
-  async function replacePlaylist(files,label=''){
-    revokeAll(); playlist=sortNumeric(files.filter(f=>f.type.startsWith('audio/')||/\.(mp3|wav|m4a|ogg)$/i.test(f.name)));
-    urls=playlist.map(f=>URL.createObjectURL(f));
-    current=0;
-    lcd(playlist.length?`LOADED ${playlist.length} FILES ${label}`:'NO FILES');
-    if(playlist.length){canvas.classList.add('active'); await play(0);}
-  }
-
-  async function play(index=current){
-    if(!playlist.length)return;
-    current=Math.max(0,Math.min(index,playlist.length-1));
-    player.src=urls[current];
-    ensureGraph();
-    try{await audioCtx.resume();await player.play();}catch(e){console.warn(e);}
-    lcd(`PLAYING ${playlist[current].name}`);
-  }
-
-  function pauseManual(){player.pause();lcd('PAUSED');}
-  player.addEventListener('ended',()=>play((current+1)%playlist.length));
-  document.getElementById('playButton').onclick=()=>play(current);
-  document.getElementById('pauseButton').onclick=pauseManual;
-  document.getElementById('skipButton').onclick=()=>play((current+1)%playlist.length);
-  document.getElementById('backButton').onclick=()=>play((current-1+playlist.length)%playlist.length);
-
-  const audioInput=document.getElementById('audioInput');
-  document.getElementById('folderButton').onclick=async()=>{
-    try{
-      if('showDirectoryPicker'in window){
-        const h=await window.showDirectoryPicker({mode:'read'});
-        const files=[];
-        for await(const [n,e]of h.entries()){
-          if(e.kind==='file')files.push(await e.getFile());
+    
+    // === Chime helper & audio unlock ===
+    function playChime(){
+      try{
+        const chime = document.getElementById('chime');
+        if(!chime) return;
+        chime.currentTime = 0;
+        chime.play().catch(()=>{});
+      }catch{}
+    }
+    let audioUnlocked = false;
+    async function unlockAudioOnce(){
+      if(audioUnlocked) return;
+      audioUnlocked = true;
+      try{ ensureGraph && ensureGraph(); }catch{}
+      try{ if(audioCtx && audioCtx.state !== 'running') await audioCtx.resume(); }catch{}
+      try{
+        const chime=document.getElementById('chime');
+        if(chime){
+          const v = chime.volume; chime.volume = 0.0;
+          await chime.play(); chime.pause(); chime.currentTime = 0; chime.volume = v;
         }
-        await replacePlaylist(files,h.name);
-      }else audioInput.click();
-    }catch{audioInput.click();}
-  };
-  audioInput.onchange=e=>replacePlaylist([...e.target.files||[]]);
+      }catch{}
+      window.removeEventListener('pointerdown', unlockAudioOnceOnce);
+      window.removeEventListener('touchstart', unlockAudioOnceOnce);
+      window.removeEventListener('keydown', unlockAudioOnceOnce);
+    }
+    function unlockAudioOnceOnce(){ unlockAudioOnce(); }
+    ['pointerdown','touchstart','keydown'].forEach(ev=>{
+      window.addEventListener(ev, unlockAudioOnceOnce, { once:true, passive:true });
+    });
 
-  if('serviceWorker'in navigator){addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));}
-  </script>
+    // === Shake detection (minimal, keeps UI unchanged) ===
+    (function(){
+      let lastShake=0, lastAx=0, lastAy=0, lastAz=0;
+      function onMotion(e){
+        const a=e.accelerationIncludingGravity||{x:0,y:0,z:0};
+        const alpha=0.8;
+        const hx=alpha*(lastAx+(a.x-lastAx));
+        const hy=alpha*(lastAy+(a.y-lastAy));
+        const hz=alpha*(lastAz+(a.z-lastAz));
+        lastAx=a.x||0; lastAy=a.y||0; lastAz=a.z||0;
+        const jerk=Math.hypot(hx,hy,hz);
+        const threshold=18, cooldown=800;
+        if(jerk>threshold){
+          const now=performance.now();
+          if(now-lastShake>cooldown){
+            lastShake=now;
+            // original click effect: flash
+            flashFeed = 0.02; flashKill = -0.01;
+            try{ if('vibrate' in navigator) navigator.vibrate(20); }catch{}
+            playChime();
+          }
+        }
+      }
+      async function tryEnableMotion(){
+        try{
+          if(typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
+            const r=await DeviceMotionEvent.requestPermission();
+            if(r!=='granted') return;
+          }
+          window.addEventListener('devicemotion', onMotion, { passive:true });
+        }catch{}
+      }
+      // Enable on first gesture
+      ['click','touchstart','pointerdown','keydown'].forEach(ev=>{
+        window.addEventListener(ev, function once(){ tryEnableMotion(); window.removeEventListener(ev, once); }, { once:true });
+      });
+    })();
+
+    // === Autoplay first track after load ===
+    async function tryAutoStart(){
+      try{ ensureGraph && ensureGraph(); }catch{}
+      try{ if(audioCtx && audioCtx.state !== 'running') await audioCtx.resume(); }catch{}
+      try{ if(playlist && playlist.length){ await play(0); } }catch{}
+    }
+
+    /* ========= Audio via <audio> ========= */
+    const player = document.getElementById('player');
+    let audioCtx, mediaSrc, analyser, meydaAnalyzer;
+
+    function ensureGraph(){
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      mediaSrc = audioCtx.createMediaElementSource(player);
+      analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
+      mediaSrc.connect(analyser); analyser.connect(audioCtx.destination);
+      meydaAnalyzer = Meyda.createMeydaAnalyzer({
+        audioContext: audioCtx, source: analyser, bufferSize: 512,
+        featureExtractors: ['rms', 'spectralCentroid'], callback: ()=>{}
+      });
+      try { meydaAnalyzer.start(); } catch {}
+    }
+
+    let playlist = [], urls = [], current = 0;
+    const lcdSpan = document.querySelector('#lcd span');
+    const lcd = t => (lcdSpan.textContent = t);
+    const nowText = () => playlist.length ? `TRACK ${current+1}/${playlist.length}: ${playlist[current].name}` : 'NO FILES';
+
+    function sortNumeric(files){
+      return files.sort((a,b)=>{
+        const ra=a.name.match(/\\d+/), rb=b.name.match(/\\d+/);
+        if(ra&&rb){ const na=+ra[0], nb=+rb[0]; if(na!==nb) return na-nb; }
+        else if(ra&&!rb) return -1; else if(!ra&&rb) return 1;
+        return a.name.localeCompare(b.name,'ja',{numeric:true,sensitivity:'base'});
+      });
+    }
+    function revokeAll(){ urls.forEach(u=>URL.revokeObjectURL(u)); urls=[]; }
+    async function replacePlaylist(files,label=''){
+      try{ player.pause(); }catch{}
+      revokeAll();
+      playlist = sortNumeric(files.filter(f => (f.type && f.type.startsWith('audio/')) || /\\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name)));
+      urls = playlist.map(f=>URL.createObjectURL(f));
+      current = 0; player.src = '';
+      lcd(playlist.length ? `LOADED ${playlist.length} files${label?' — '+label:''}` : 'NO FILES');
+      updateMediaSessionMetadata();
+    }
+
+    // auto-start after successful load
+    try { await tryAutoStart(); } catch{}
+
+    async function play(index=current){
+      if(!playlist.length) return;
+      current = Math.max(0, Math.min(index, playlist.length-1));
+      if(player.src !== urls[current]) player.src = urls[current];
+      try {
+        await player.play();
+        ensureGraph(); try{ await audioCtx.resume(); }catch{}
+        lcd(nowText());
+        if (!canvasActivated){ canvas.classList.add('active'); canvasActivated = true; }
+        await requestWakeLock(); // keep screen on
+        updateMediaSessionMetadata();
+      } catch(e) {
+        console.warn('play() blocked:', e);
+      }
+    }
+    function pauseManual(){ try{ player.pause(); }catch{} lcd(playlist.length?`PAUSED — ${nowText()}`:'PAUSED'); }
+
+    player.addEventListener('ended', ()=>{ play((current+1)%playlist.length); });
+
+    document.getElementById('playButton').addEventListener('click', ()=> play(current));
+    document.getElementById('pauseButton').addEventListener('click', pauseManual);
+    document.getElementById('skipButton').addEventListener('click', ()=> play((current+1)%playlist.length));
+    document.getElementById('backButton').addEventListener('click', ()=> play((current-1+playlist.length)%playlist.length));
+
+    /* ========= Folder pickers ========= */
+    // === Drag & Drop support ===
+    window.addEventListener('dragover', e => { e.preventDefault(); }, { passive:false });
+    window.addEventListener('drop', async e => {
+      e.preventDefault();
+      const dt = e.dataTransfer;
+      const files = [];
+      if (dt.items && dt.items.length){
+        for (const item of dt.items){
+          const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+          if (entry){
+            async function readAll(reader){
+              return new Promise((resolve)=>{
+                const all=[];
+                (function pump(){
+                  reader.readEntries(ents=>{ if(!ents.length) return resolve(all); all.push(...ents); pump(); });
+                })();
+              });
+            }
+            async function traverse(ent){
+              return new Promise(async (resolve)=>{
+                if(ent.isFile){ ent.file(f=>{ files.push(f); resolve(); }); }
+                else if(ent.isDirectory){ const reader=ent.createReader(); const ents=await readAll(reader); for(const en of ents) await traverse(en); resolve(); }
+                else resolve();
+              });
+            }
+            await traverse(entry);
+          }else{
+            const f = item.getAsFile && item.getAsFile(); if (f) files.push(f);
+          }
+        }
+      } else if (dt.files && dt.files.length){
+        for (const f of dt.files) files.push(f);
+      }
+      if (files.length){
+        await replacePlaylist(files);
+        try { await tryAutoStart(); } catch {}
+      } else {
+        lcd('DROP FAILED — NO FILES');
+      }
+    }, { passive:false });
+
+    const folderButton = document.getElementById('folderButton');
+    const audioInput = document.getElementById('audioInput');
+    async function* walk(h){ for await (const [name,e] of h.entries()){ if(e.kind==='file') yield await e.getFile(); else if(e.kind==='directory') yield* walk(e);} }
+    async function loadFromDir(h){ const files=[]; for await(const f of walk(h)) files.push(f); await replacePlaylist(files, h?.name||''); }
+    async function pickFolderNative(){ const h=await window.showDirectoryPicker({mode:'read'}); const p=await h.requestPermission({mode:'read'}); if(p!=='granted') throw new DOMException('Permission denied'); await loadFromDir(h); }
+    
+folderButton.addEventListener('click', async (e)=>{
+  const hasDir = 'showDirectoryPicker' in window;
+  const hasFiles = 'showOpenFilePicker' in window;
+  if (hasDir) {
+    e.preventDefault(); e.stopPropagation();
+    try { await pickFolderNative(); return; } catch {}
+  } else if (hasFiles) {
+    e.preventDefault(); e.stopPropagation();
+    try {
+      const handles = await window.showOpenFilePicker({ multiple:true, types:[{description:'Audio', accept:{'audio/*':['.mp3','.m4a','.aac','.wav','.flac','.ogg']}}] });
+      const files = await Promise.all(handles.map(h => h.getFile()));
+      await replacePlaylist(files);
+      try { await tryAutoStart(); } catch {}
+      return;
+    } catch {}
+  }
+  // Final fallback: allow label default to open input
+  // (do not preventDefault)
+});
+
+    audioInput.addEventListener('change', async (e)=>{ await replacePlaylist([...(e.target.files||[])]); try { await tryAutoStart(); } catch{} });
+
+    /* ========= Wake Lock: keep screen ON ========= */
+    let wakeLock = null, wakeRetryTimer = null;
+    async function requestWakeLock(){
+      try{
+        if(!('wakeLock' in navigator)) return;
+        if(wakeLock) return;
+        wakeLock = await navigator.wakeLock.request('screen');
+        if(!document.querySelector('#lcd small')) lcdSpan.insertAdjacentHTML('beforeend',' <small>• screen on</small>');
+        wakeLock.addEventListener('release',()=>{
+          wakeLock = null;
+          clearTimeout(wakeRetryTimer);
+          wakeRetryTimer = setTimeout(()=>{ requestWakeLock(); }, 500);
+        });
+      }catch(e){
+        clearTimeout(wakeRetryTimer);
+        wakeRetryTimer = setTimeout(()=>{ requestWakeLock(); }, 1000);
+      }
+    }
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.visibilityState === 'visible'){
+        requestWakeLock();
+        if (!player.paused) { player.play().catch(()=>{}); }
+      }
+    });
+    window.addEventListener('focus', ()=>{
+      requestWakeLock();
+      if (!player.paused) { player.play().catch(()=>{}); }
+    });
+    ['click','touchstart'].forEach(ev=>document.addEventListener(ev,()=>{ requestWakeLock(); }, { once:true }));
+
+    /* ========= Media Session ========= */
+    function updateMediaSessionMetadata(){
+      if (!('mediaSession' in navigator)) return;
+      const name = playlist[current]?.name || '—';
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: name,
+        artist: 'Gray-Scott Visualizer',
+        album: 'GSV',
+        artwork: [
+          { src: './icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: './icon-512.png', sizes: '512x512', type: 'image/png' }
+        ]
+      });
+    }
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => { player.play().catch(()=>{}); });
+      navigator.mediaSession.setActionHandler('pause', () => { player.pause(); });
+      navigator.mediaSession.setActionHandler('previoustrack', () => { play((current - 1 + playlist.length) % playlist.length); });
+      navigator.mediaSession.setActionHandler('nexttrack', () => { play((current + 1) % playlist.length); });
+    }
+
+    /* ========= Service Worker (optional) ========= */
+    if ('serviceWorker' in navigator) {
+      addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(()=>{});
+      });
+    }
+  
+    // ===== PWA-only intake override (simplest, most compatible) =====
+    (function(){
+      const isPWA = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || (window.navigator && window.navigator.standalone);
+      if(!isPWA) return;
+      const folderButton = document.getElementById('folderButton');
+      const audioInput = document.getElementById('audioInput');
+      if(!folderButton || !audioInput) return;
+      // Strong override: capture-phase; don't prevent default so label-for also works
+      folderButton.addEventListener('click', (e)=>{
+        try{
+          audioInput.multiple = true;
+          audioInput.accept = 'audio/*';
+          // allow default -> label 'for' opens native picker; also try programmatic click for safety
+          setTimeout(()=>{ try{ audioInput.click(); }catch{} }, 0);
+        }catch{}
+      }, {capture:true});
+      // Ensure we always handle selection
+      audioInput.addEventListener('change', async (e)=>{
+        try{
+          const files = [...(e.target.files||[])];
+          if (typeof replacePlaylist === 'function'){
+            await replacePlaylist(files);
+            if (typeof tryAutoStart === 'function'){ try { await tryAutoStart(); } catch {} }
+          }
+        }catch{}
+      }, {capture:true});
+    })();
+</script>
 </body>
 </html>
