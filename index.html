@@ -2,64 +2,57 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>KaleidoBaby Visualizer</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+  <title>KaleidoBaby Visualizer — PWA (Random Color + Shake)</title>
 
   <!-- PWA -->
   <link rel="manifest" href="./manifest.json">
-  <link rel="icon" href="./babyface-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="./babyface-192.png">
   <meta name="theme-color" content="#000000">
+  <!-- iOS PWA meta -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="./babyface-192.png">
+  <link rel="icon" href="./babyface-192.png" type="image/png">
 
   <style>
+    :root { color-scheme: dark; }
+    html, body { height: 100%; }
     body {
-      margin: 0;
-      background: #fff;
-      color: #000;
-      font-family: system-ui, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 16px;
+      margin: 0; background: #000; color: #fff;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      display: flex; flex-direction: column; align-items: center; padding: 16px;
     }
     canvas {
-      background: #000;
-      width: 100%;
-      max-width: 500px;
-      aspect-ratio: 1/1;
-      border-radius: 4px;
-      opacity: 0;
-      transition: opacity 1s ease;
-      pointer-events: none;
+      background: #000; width: 100%; max-width: 520px; aspect-ratio: 1 / 1;
+      border-radius: 12px; opacity: 0; transition: opacity .8s ease; pointer-events: none;
+      box-shadow: 0 10px 40px rgba(0,0,0,.5);
     }
     canvas.active { opacity: 1; pointer-events: auto; }
     #controls {
-      display: flex; flex-direction: column; align-items: stretch;
-      width: 100%; max-width: 500px; margin-top: 16px; gap: 8px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      width: 100%; max-width: 520px; margin-top: 16px;
     }
     #lcd, button, label {
-      height: 48px; background: #fff; border: 1px solid #000; color: #000;
-      font-size: 16px; font-family: monospace;
-      display: flex; align-items: center; justify-content: center;
-      white-space: nowrap; cursor: pointer; padding: 0 12px;
-      overflow: hidden; text-overflow: ellipsis;
+      height: 48px; background: #111; border: 1px solid #444; color: #fff;
+      font-size: 14px; letter-spacing: .2px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      display: flex; align-items: center; justify-content: center; white-space: nowrap;
+      cursor: pointer; padding: 0 12px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis;
     }
-    #lcd span {
-      display: inline-block;
-      animation: scroll 10s linear infinite;
-    }
-    @keyframes scroll {
-      from { transform: translateX(100%); }
-      to   { transform: translateX(-100%); }
-    }
+    #lcd { grid-column: 1 / -1; justify-content: flex-start; padding-left: 12px; }
+    #lcd small { opacity: .7; margin-left: 8px; font-size: 12px; }
+    #lcd span { display: inline-block; animation: scroll 12s linear infinite; }
+    @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
     input[type="file"] { display: none; }
+    audio { display: none; }
   </style>
 </head>
 <body>
-  <canvas id="canvas"></canvas>
+  <canvas id="canvas" aria-label="Gray-Scott Visualizer"></canvas>
+
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
-    <label for="audioInput">SELECT MUSIC FOLDER</label>
+    <label id="folderButton">SELECT MUSIC FOLDER / FILES</label>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
     <button id="skipButton">NEXT</button>
@@ -67,8 +60,11 @@
     <input type="file" id="audioInput" accept="audio/*" multiple webkitdirectory>
   </div>
 
+  <audio id="player" preload="metadata" playsinline></audio>
+
   <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
+    /* ========= Visualizer core ========= */
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
     const size = 500;
@@ -76,124 +72,344 @@
     const imageData = ctx.createImageData(size, size);
     let canvasActivated = false;
 
+    const CFG = {
+      baseF: 0.022, baseK: 0.051,
+      quietThreshold: 0.10, quietHoldMs: 400,
+      levelFeedGain: 0.0025, levelKillGain: 0.0022, paramSlew: 0.10,
+      spreadBase: 1.08, spreadAdd: 0.12, duVar: 0.05, dvVar: 0.05,
+      kToneMin: 2.6, kToneRange: 1.0,
+      whiteTint: 0.20, whiteLevel: 242,
+      transitionMs: 2600,
+      clickFlashFeed: 0.010, clickFlashKill: -0.005,
+      clickPulseMs: 200, clickPulseGain: 0.45,
+      symmetry: '4'
+    };
+
+    // Soft-Deep palette
+    const palette = [
+      [156,149,246], // #9C95F6
+      [224,219,210], // #E0DBD2
+      [230,175,194], // #E6AFC2
+      [143,173,235], // #8FADEB
+      [111,201,191], // #6FC9BF
+      [182,224,210]  // #B6E0D2
+    ];
+    let colorCurrent = [...palette[0]];
+    let colorPrev = [...palette[0]];
+    let colorTarget = [...palette[0]];
+    let transitionStart = 0;
+    const lerp = (a,b,t)=> a + (b - a) * t;
+
+    // Gray-Scott fields
     let U = new Float32Array(size * size).fill(1);
     let V = new Float32Array(size * size).fill(0);
-    for (let y = size/2-16; y < size/2+16; y++)
-      for (let x = size/2-16; x < size/2+16; x++)
+    for (let y=size/2-16; y<size/2+16; y++)
+      for (let x=size/2-16; x<size/2+16; x++)
         V[y*size+x] = 1;
 
-    const du = 0.16, dv = 0.08, feedBase = 0.022, killBase = 0.051;
-    let feed = feedBase, kill = killBase;
-    let paused = false, playing = false, isSwitching = false;
-    let flashFeed = 0, flashKill = 0;
-    const pinkNoise = Array(8).fill(0);
+    let du=0.16, dv=0.08;
+    let flashFeed=0, flashKill=0;
 
-    // 色パレット
-    const colors = [
-      [255, 0, 0], [0, 255, 0], [0, 0, 255],
-      [255, 255, 0], [255, 0, 255], [0, 255, 255],
-      [255, 160, 0], [255, 255, 255]
-    ];
-    let currentColor = 0;
+    function lap(f, x, y) {
+      return f[((y-1+size)%size)*size + x] + f[((y+1)%size)*size + x] +
+             f[y*size + ((x-1+size)%size)] + f[y*size + ((x+1)%size)] - 4*f[y*size + x];
+    }
 
-    function generatePinkNoise() {
-      let total = 0;
-      for (let i=0;i<pinkNoise.length;i++) {
-        if (Math.random() < 1/(1<<i)) pinkNoise[i] = Math.random()*2-1;
-        total += pinkNoise[i];
-      }
-      return total/pinkNoise.length;
-    }
-    function lap(f,x,y){
-      return f[((y-1+size)%size)*size+x]+f[((y+1)%size)*size+x]+
-             f[y*size+((x-1+size)%size)]+f[y*size+((x+1)%size)]-
-             4*f[y*size+x];
-    }
-    function step(){
+    const audio = { rmsEma:0, rmsEma2:0, level01:0, levelSmooth:0, lastLoudAt: performance.now() };
+    const clamp01 = x => Math.max(0, Math.min(1, x));
+    let feedMod=0, killMod=0;
+
+    function step(active=true){
+      if(!active) return;
       const U2 = new Float32Array(U.length), V2 = new Float32Array(V.length);
-      const t = performance.now()/1000;
-      const pf = generatePinkNoise()*0.0015, pk = generatePinkNoise()*0.0015;
-      const f = feedBase+pf+0.0007*Math.sin(t*Math.PI/10)+flashFeed;
-      const k = killBase+pk+0.0007*Math.cos(t*Math.PI/10)+flashKill;
-      flashFeed*=0.9; flashKill*=0.9;
-      for(let i=0;i<U.length;i++){
-        const y=Math.floor(i/size), x=i%size;
+      const lvl = audio.levelSmooth;
+
+      const targetFeedMod = flashFeed + lvl * CFG.levelFeedGain;
+      const targetKillMod = flashKill + lvl * CFG.levelKillGain;
+      feedMod += (targetFeedMod - feedMod) * CFG.paramSlew;
+      killMod += (targetKillMod - killMod) * CFG.paramSlew;
+
+      const f = CFG.baseF + feedMod;
+      const k = CFG.baseK + killMod;
+
+      const spread = CFG.spreadBase + lvl * CFG.spreadAdd;
+      const duNow = du * (1 + lvl * CFG.duVar);
+      const dvNow = dv * (1 + lvl * CFG.dvVar);
+
+      flashFeed *= 0.92; flashKill *= 0.92;
+
+      for (let i=0;i<U.length;i++){
+        const y = (i/size)|0, x = i%size;
         const u=U[i], v=V[i];
-        const Lu=lap(U,x,y)*1.2;
-        const Lv=lap(V,x,y)*1.2;
-        U2[i]=u+(du*Lu-u*v*v+f*(1-u));
-        V2[i]=v+(dv*Lv+u*v*v-(f+k)*v);
+        const Lu = lap(U,x,y) * spread;
+        const Lv = lap(V,x,y) * spread;
+        U2[i] = u + (duNow*Lu - u*v*v + f*(1-u));
+        V2[i] = v + (dvNow*Lv + u*v*v - (f+k)*v);
       }
+      enforceSymmetry(U2, V2);
       U=U2; V=V2;
     }
-    function draw(){
-      const d=imageData.data;
-      const [rC,gC,bC]=colors[currentColor];
-      for(let i=0;i<U.length;i++){
-        const c=Math.max(0,Math.min(1,(U[i]-V[i])*1.2))*255;
-        const k=i*4, a=c/255;
-        d[k]=rC*a; d[k+1]=gC*a; d[k+2]=bC*a; d[k+3]=255;
-      }
-      ctx.putImageData(imageData,0,0);
-    }
-    function loop(){
-      if(!paused){
-        let speed=3;
-        if(playing && meyda?._features?.rms)
-          speed=Math.min(10,Math.floor(3+meyda._features.rms*20));
-        for(let i=0;i<speed;i++) step();
-      }
-      if(canvasActivated) draw();
-      requestAnimationFrame(loop);
-    }
-    loop();
 
-    canvas.addEventListener('click',()=>{
-      flashFeed=0.08; flashKill=-0.04;
-      currentColor=(currentColor+1)%colors.length;
+    function enforceSymmetry(Uarr, Varr){
+      const half = size>>1;
+      for (let y=0; y<half; y++){
+        for (let x=0; x<half; x++){
+          const sx=size-1-x, sy=size-1-y;
+          const a=y*size+x, b=y*size+sx, c=sy*size+x, d=sy*size+sx;
+          const uMean=(Uarr[a]+Uarr[b]+Uarr[c]+Uarr[d])/4;
+          const vMean=(Varr[a]+Varr[b]+Varr[c]+Varr[d])/4;
+          Uarr[a]=Uarr[b]=Uarr[c]=Uarr[d]=uMean;
+          Varr[a]=Varr[b]=Varr[c]=Varr[d]=vMean;
+        }
+      }
+    }
+
+    let clickPulseUntil = 0;
+
+    function draw(){
+      const d = imageData.data;
+      const now = performance.now();
+
+      const pulseBoost = now < clickPulseUntil ? CFG.clickPulseGain : 0;
+      const kToneBase = CFG.kToneMin + audio.levelSmooth * CFG.kToneRange;
+      const kTone = kToneBase * (1 + pulseBoost);
+
+      const norm = x => Math.max(0, Math.min(1, x));
+      const tone = x => (1 - Math.exp(-kTone * x)) / (1 - Math.exp(-kTone));
+
+      const progress = Math.min(1, (now - transitionStart) / CFG.transitionMs);
+      for (let i=0;i<3;i++){ colorCurrent[i] = lerp(colorPrev[i], colorTarget[i], progress); }
+
+      for (let i=0;i<U.length;i++){
+        const base = norm((U[i] - V[i]) * 1.0);
+        const t = tone(base);
+        const c = (Math.min(t, 0.985) * 255)|0;
+        const p = i*4;
+
+        if (c >= CFG.whiteLevel) {
+          const tint = CFG.whiteTint;
+          d[p]   = (1 - tint) * 255 + tint * colorCurrent[0];
+          d[p+1] = (1 - tint) * 255 + tint * colorCurrent[1];
+          d[p+2] = (1 - tint) * 255 + tint * colorCurrent[2];
+          d[p+3] = 255;
+        } else {
+          const tDark = 1 - (c / 255);
+          d[p]   = (1 - tDark) * 255 + tDark * colorCurrent[0];
+          d[p+1] = (1 - tDark) * 255 + tDark * colorCurrent[1];
+          d[p+2] = (1 - tDark) * 255 + tDark * colorCurrent[2];
+          d[p+3] = 255;
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    (function loop(){
+      const now = performance.now();
+      const active = (now - audio.lastLoudAt) < CFG.quietHoldMs;
+      step(active);
+      draw();
+      requestAnimationFrame(loop);
+    })();
+
+    // ==== カラー遷移（ランダム）＆フラッシュパルス ====
+    function pickRandomDifferent(rgb){
+      let next;
+      do { next = palette[(Math.random()*palette.length)|0]; }
+      while (next[0]===rgb[0] && next[1]===rgb[1] && next[2]===rgb[2]);
+      return [...next];
+    }
+    function changeColorRandom(){
+      colorPrev = [...colorCurrent];
+      colorTarget = pickRandomDifferent(colorTarget);
+      transitionStart = performance.now();
+    }
+    function triggerFlashPulse(){
+      flashFeed += CFG.clickFlashFeed;
+      flashKill += CFG.clickFlashKill;
+      clickPulseUntil = performance.now() + CFG.clickPulseMs;
+      if ('vibrate' in navigator) try{ navigator.vibrate(20); }catch{}
+    }
+
+    // クリック：ランダム色＋パルス
+    canvas.addEventListener('click', ()=>{
+      changeColorRandom();
+      triggerFlashPulse();
     });
 
-    let audioContext, source, meyda;
-    let playlist=[], currentTrack=0;
-    const lcdSpan=document.querySelector('#lcd span');
+    /* ========= Audio graph ========= */
+    const player = document.getElementById('player');
+    let audioCtx, mediaSrc, analyser, meydaAnalyzer;
 
-    function initAudio(){ if(!audioContext){ audioContext=new (window.AudioContext||window.webkitAudioContext)(); } }
-    document.body.addEventListener('touchend',()=>{ if(audioContext?.state==='suspended') audioContext.resume(); },{once:true});
+    function ensureGraph(){
+      if (audioCtx) return;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      mediaSrc = audioCtx.createMediaElementSource(player);
+      analyser = audioCtx.createAnalyser(); analyser.fftSize = 1024;
+      mediaSrc.connect(analyser); analyser.connect(audioCtx.destination);
 
-    async function stopCurrentTrack(){ if(source){ try{source.stop();}catch{} try{source.disconnect();}catch{} source=null; } playing=false; await new Promise(r=>setTimeout(r,50)); }
-    async function loadAudioBuffer(file){ return new Promise((resolve,reject)=>{ const reader=new FileReader(); reader.onload=evt=>{ audioContext.decodeAudioData(evt.target.result).then(resolve).catch(reject); }; reader.readAsArrayBuffer(file); }); }
-    async function playTrack(index){
-      if(isSwitching||!playlist.length||index>=playlist.length)return;
-      isSwitching=true;
-      try{
-        await stopCurrentTrack(); initAudio();
-        const file=playlist[index];
-        const buffer=await loadAudioBuffer(file);
-        if(!buffer){ lcdSpan.textContent=`Decode failed: ${file.name}`; return; }
-        source=audioContext.createBufferSource(); source.buffer=buffer;
-        const analyser=audioContext.createAnalyser(); analyser.fftSize=1024;
-        source.connect(analyser); analyser.connect(audioContext.destination);
-        if(!meyda){ meyda=Meyda.createMeydaAnalyzer({audioContext,source:analyser,bufferSize:512,featureExtractors:['rms','spectralCentroid'],callback:f=>{ if(!playing||paused)return; feed=Math.min(feedBase+f.rms*0.03,0.04); kill=Math.max(killBase-f.spectralCentroid/6000*0.03,0.04); }}); meyda.start(); } else { meyda.setSource(analyser); }
-        source.onended=async()=>{ if(!playing||!source||isSwitching)return; playing=false; await stopCurrentTrack(); await audioContext.resume(); await playTrack((currentTrack+1)%playlist.length); };
-        lcdSpan.textContent=`TRACK ${index+1}: ${file.name}`;
-        playing=true; paused=false; currentTrack=index;
-        await audioContext.resume(); source.start(0);
-        if(!canvasActivated){ canvas.classList.add('active'); canvasActivated=true; }
-      }catch(e){ lcdSpan.textContent=`Error: ${e.message}`; console.error(e); } finally{ isSwitching=false; }
-    }
-    document.getElementById('audioInput').addEventListener('change',e=>{ playlist=Array.from(e.target.files).filter(f=>f.type.startsWith('audio/')).sort((a,b)=>a.name.localeCompare(b.name)); currentTrack=0; lcdSpan.textContent=playlist.length?'LOADED':'NO FILES LOADED'; });
-    document.getElementById('playButton').addEventListener('click',()=>{ if(audioContext?.state==='suspended') audioContext.resume(); else if(playlist.length) playTrack(currentTrack); });
-    document.getElementById('pauseButton').addEventListener('click',()=>{ if(audioContext?.state==='running'){ audioContext.suspend(); paused=true; } });
-    document.getElementById('skipButton').addEventListener('click',async()=>{ if(isSwitching||!playlist.length)return; await stopCurrentTrack(); await audioContext.resume(); await playTrack((currentTrack+1)%playlist.length); });
-    document.getElementById('backButton').addEventListener('click',async()=>{ if(isSwitching||!playlist.length)return; await stopCurrentTrack(); await audioContext.resume(); await playTrack((currentTrack-1+playlist.length)%playlist.length); });
-  </script>
-
-  <!-- Service Worker -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').catch(console.error);
+      meydaAnalyzer = Meyda.createMeydaAnalyzer({
+        audioContext: audioCtx,
+        source: analyser, bufferSize: 512,
+        featureExtractors: ['rms'],
+        callback: ({rms})=>{
+          if (!isFinite(rms)) rms = 0;
+          const a = 0.14;
+          audio.rmsEma  = (1-a)*audio.rmsEma  + a*rms;
+          audio.rmsEma2 = (1-a)*audio.rmsEma2 + a*(rms*rms);
+          const variance = Math.max(0, audio.rmsEma2 - audio.rmsEma*audio.rmsEma);
+          const std = Math.sqrt(variance);
+          const floor = audio.rmsEma * 0.45;
+          const ceil  = audio.rmsEma + 2.6*std + 1e-4;
+          const level01 = clamp01((rms - floor) / Math.max(1e-4, (ceil - floor)));
+          const s = 0.10;
+          audio.levelSmooth = (1-s)*audio.levelSmooth + s*level01;
+          audio.level01 = level01;
+          if (audio.levelSmooth >= CFG.quietThreshold) audio.lastLoudAt = performance.now();
+        }
       });
+      try { meydaAnalyzer.start(); } catch {}
+    }
+
+    /* ========= シェイク（強く振ったら：ランダム色＋パルス） ========= */
+    let lastShake=0, lastAx=0, lastAy=0, lastAz=0;
+    function onMotion(e){
+      const a = e.accelerationIncludingGravity || e.acceleration || {x:0,y:0,z:0};
+      const alpha = 0.8; // high-pass-ish
+      const hx = alpha*(lastAx + (a.x - lastAx));
+      const hy = alpha*(lastAy + (a.y - lastAy));
+      const hz = alpha*(lastAz + (a.z - lastAz));
+      lastAx = a.x||0; lastAy = a.y||0; lastAz = a.z||0;
+      const jerk = Math.sqrt(hx*hx + hy*hy + hz*hz);
+      const threshold = 18; // 15〜22推奨
+      const cooldown = 800;
+      if (jerk > threshold) {
+        const now = performance.now();
+        if (now - lastShake > cooldown) {
+          lastShake = now;
+          changeColorRandom();   // ★ ランダム色
+          triggerFlashPulse();   // ★ フラッシュ
+        }
+      }
+    }
+
+    // iOSのモーション権限：ボタンなしで、最初のユーザー操作時に要求
+    async function tryEnableMotion(){
+      try{
+        if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+          const res = await DeviceMotionEvent.requestPermission();
+          if (res !== 'granted') return;
+        }
+        window.addEventListener('devicemotion', onMotion, { passive:true });
+      }catch{}
+    }
+    // 初回のいずれかの操作で有効化
+    ['click','touchstart','pointerdown','keydown'].forEach(ev=>{
+      window.addEventListener(ev, function once(){ tryEnableMotion(); window.removeEventListener(ev, once, {capture:false}); }, { once:true, capture:false });
+    });
+
+    /* ========= UI / Playlist ========= */
+    let playlist=[], urls=[], current=0;
+    const lcdSpan = document.querySelector('#lcd span');
+    const lcd = t => (lcdSpan.textContent = t);
+    const nowText = () => playlist.length ? `TRACK ${current+1}/${playlist.length}: ${playlist[current].name}` : 'NO FILES';
+
+    function sortNumeric(files){
+      return files.sort((a,b)=>{
+        const ra=a.name.match(/\d+/), rb=b.name.match(/\d+/);
+        if(ra&&rb){ const na=+ra[0], nb=+rb[0]; if(na!==nb) return na-nb; }
+        else if(ra&&!rb) return -1; else if(!ra&&rb) return 1;
+        return a.name.localeCompare(b.name,'ja',{numeric:true,sensitivity:'base'});
+      });
+    }
+    function revokeAll(){ urls.forEach(u=>URL.revokeObjectURL(u)); urls=[]; }
+    async function replacePlaylist(files,label=''){
+      try{ player.pause(); }catch{}
+      revokeAll();
+      playlist = sortNumeric(files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name)));
+      urls = playlist.map(f=>URL.createObjectURL(f));
+      current = 0; player.src = '';
+      lcd(playlist.length ? `LOADED ${playlist.length} files${label?' — '+label:''}` : 'NO FILES');
+      updateMediaSessionMetadata();
+    }
+
+    async function play(index=current){
+      if(!playlist.length) return;
+      current = Math.max(0, Math.min(index, playlist.length-1));
+      if(player.src !== urls[current]) player.src = urls[current];
+      try {
+        await player.play();
+        ensureGraph(); try{ await audioCtx.resume(); }catch{}
+        lcd(nowText());
+        if (!canvasActivated){
+          canvas.classList.add('active'); canvasActivated = true;
+          if (!document.querySelector('#lcd small')) lcdSpan.insertAdjacentHTML('beforeend',' <small>• PWA • random color • shake • screen on</small>');
+        }
+        await requestWakeLock();
+        updateMediaSessionMetadata();
+      } catch(e) { console.warn('play() blocked:', e); }
+    }
+    function pauseManual(){ try{ player.pause(); }catch{} lcd(playlist.length?`PAUSED — ${nowText()}`:'PAUSED'); }
+
+    player.addEventListener('ended', ()=>{ play((current+1)%playlist.length); });
+
+    document.getElementById('playButton').addEventListener('click', ()=> play(current));
+    document.getElementById('pauseButton').addEventListener('click', pauseManual);
+    document.getElementById('skipButton').addEventListener('click', ()=> play((current+1)%playlist.length));
+    document.getElementById('backButton').addEventListener('click', ()=> play((current-1+playlist.length)%playlist.length));
+
+    const folderButton = document.getElementById('folderButton');
+    const audioInput = document.getElementById('audioInput');
+    folderButton.addEventListener('click', async (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      try {
+        if('showDirectoryPicker' in window){
+          const h=await window.showDirectoryPicker({mode:'read'});
+          const p=await h.requestPermission({mode:'read'});
+          if(p!=='granted') throw new DOMException('Permission denied');
+          const files=[];
+          async function* walk(h){ for await (const [name,e] of h.entries()){ if(e.kind==='file') yield await e.getFile(); else if(e.kind==='directory') yield* walk(e);} }
+          for await(const f of walk(h)) files.push(f);
+          await replacePlaylist(files, h?.name||'');
+        } else { audioInput.click(); }
+      } catch { audioInput.click(); }
+    });
+    audioInput.addEventListener('change', async (e)=>{ await replacePlaylist([...e.target.files||[]]); });
+
+    /* ========= Wake Lock ========= */
+    let wakeLock=null, wakeRetryTimer=null;
+    async function requestWakeLock(){
+      try{
+        if(!('wakeLock' in navigator)) return;
+        if(wakeLock) return;
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release',()=>{ wakeLock=null; clearTimeout(wakeRetryTimer); wakeRetryTimer=setTimeout(()=>{ requestWakeLock(); }, 500); });
+      }catch{ clearTimeout(wakeRetryTimer); wakeRetryTimer=setTimeout(()=>{ requestWakeLock(); }, 1000); }
+    }
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible'){ requestWakeLock(); if(!player.paused){ player.play().catch(()=>{}); } }});
+    window.addEventListener('focus', ()=>{ requestWakeLock(); if(!player.paused){ player.play().catch(()=>{}); }});
+
+    /* ========= Media Session ========= */
+    function updateMediaSessionMetadata(){
+      if (!('mediaSession' in navigator)) return;
+      const name = playlist[current]?.name || '—';
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: name, artist: 'KaleidoBaby', album: 'Visualizer',
+        artwork: [
+          { src: './babyface-192.png', sizes: '192x192', type: 'image/png' },
+          { src: './babyface-512.png', sizes: '512x512', type: 'image/png' }
+        ]
+      });
+    }
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.setActionHandler('play', () => { player.play().catch(()=>{}); });
+      navigator.mediaSession.setActionHandler('pause', () => { player.pause(); });
+      navigator.mediaSession.setActionHandler('previoustrack', () => { play((current - 1 + playlist.length) % playlist.length); });
+      navigator.mediaSession.setActionHandler('nexttrack', () => { play((current + 1) % playlist.length); });
+    }
+
+    /* ========= Service Worker ========= */
+    if ('serviceWorker' in navigator) {
+      addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(()=>{}); });
     }
   </script>
 </body>
