@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
   <title>KaleidoBaby Visualizer</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.39/Tone.min.js"></script>
   <style>
     body { margin:0; overflow:hidden; background:black; }
     canvas { display:block; }
@@ -32,6 +31,7 @@ let rainbowColors = [
   [0,255,0],[0,0,255],[75,0,130],[238,130,238]
 ];
 let currentColor = [255,255,255]; // 初期は白
+let shakeTriggered = false;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -71,7 +71,7 @@ function draw() {
       let c = Math.max(0, Math.min(1, (U[i] - V[i]) * 1.2)) * 255;
       let k = (x + y*N)*4;
 
-      if (c > 240) {
+      if (c > 200) { // 白に近い部分を色替え
         d[k]   = currentColor[0];
         d[k+1] = currentColor[1];
         d[k+2] = currentColor[2];
@@ -86,14 +86,10 @@ function draw() {
 }
 
 // ==== 振動で色を切り替え ====
-let synth = new Tone.Synth().toDestination();
-let shakeTriggered = false;
-
 function handleMotion(e) {
   let acc = e.accelerationIncludingGravity;
   let magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
   if (magnitude > 25 && !shakeTriggered) {
-    synth.triggerAttackRelease("C4", "8n"); // 振ったとき音を鳴らす
     colorIndex++;
     if (colorIndex >= rainbowColors.length) colorIndex = -1;
     currentColor = (colorIndex === -1) ? [255,255,255] : rainbowColors[colorIndex];
