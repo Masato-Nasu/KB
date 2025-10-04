@@ -213,7 +213,20 @@
       return [...n];
     }
     function changeColorRandom(){ colorPrev=[...colorCurrent]; colorTarget=pickRandomDifferent(colorTarget); transitionStart=performance.now(); }
-    function triggerFlashPulse(){ flashFeed+=CFG.clickFlashFeed; flashKill+=CFG.clickFlashKill; clickPulseUntil=performance.now()+CFG.clickPulseMs; if('vibrate'in navigator) try{navigator.vibrate(20);}catch{} }
+    function triggerFlashPulse(){ flashFeed+=CFG.clickFlashFeed; flashKill+=CFG.clickFlashKill; clickPulseUntil=performance.now()+CFG.clickPulseMs; if('vibrate'in navigator) try{navigator.vibrate(20);}
+    // === Auto-start playback right after selection (in user gesture) ===
+    async function tryAutoStart(){
+      try{ ensureGraph && ensureGraph(); }catch{}
+      try{ if(audioCtx && audioCtx.state !== 'running') await audioCtx.resume(); }catch{}
+      try{
+        if (!playlist.length) return;
+        await play(0);
+      }catch(e){
+        // If policy blocks autoplay, inform user
+        lcd('READY — TAP PLAY');
+      }
+    }
+catch{} }
 
     canvas.addEventListener('click', ()=>{ changeColorRandom(); triggerFlashPulse(); });
 
@@ -295,6 +308,9 @@
       urls = playlist.map(f=>URL.createObjectURL(f));
       current = 0; player.src = '';
       lcd(playlist.length ? `LOADED ${playlist.length} files${label?' — '+label:''}` : 'NO FILES');
+    
+      // auto-start after successful load
+      if(playlist.length){ try { await tryAutoStart(); } catch{} }
     }
 
     async function play(index=current){
@@ -510,6 +526,69 @@
       return false;
     };
 
+
+    function isAudioName(name){ return /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(name||''); }
+    async function handlePickedFileList(fileList){
+      const raw = Array.from(fileList||[]);
+      if (!raw.length){ lcd('NO FILES PICKED'); return; }
+      if (typeof importZipOrFiles === 'function'){
+        const ok = await importZipOrFiles(raw);
+        if (!ok){ lcd(`LOAD FAIL (${raw.length} picked)`); return; }
+      } else {
+        await replacePlaylist(raw);
+      }
+      try {
+        if (typeof playlist !== 'undefined'){
+          lcd(playlist.length ? `LOADED ${playlist.length} files` : 'NO FILES');
+        }
+      } catch {}
+      try { await tryAutoStart(); } catch {}
+    }
+    try { audioInput.onchange = (e)=>{ handlePickedFileList(e.target.files); }; } catch {}
+
+    window._traverseDirFull = async function dirTraverse(entry, acc){
+      function readAll(reader){
+        return new Promise((resolve)=>{
+          const out=[];
+          (function pump(){
+            reader.readEntries(entries=>{
+              if (!entries.length) return resolve(out);
+              out.push(...entries); pump();
+            });
+          })();
+        });
+      }
+      return new Promise(async (resolve)=>{
+        if (entry.isFile){
+          entry.file(f => { acc.push(f); resolve(); });
+        } else if (entry.isDirectory){
+          const reader = entry.createReader();
+          const entries = await readAll(reader);
+          for (const ent of entries) await dirTraverse(ent, acc);
+          resolve();
+        } else resolve();
+      });
+    };
+    if (typeof importFromDataTransfer === 'function'){
+      const _orig = importFromDataTransfer;
+      window.importFromDataTransfer = async function(dt){
+        const ok = await _orig(dt);
+        if (ok) return true;
+        const acc = [];
+        if (dt.items){
+          for (const item of dt.items){
+            const entry = item.webkitGetAsEntry && item.webkitGetAsEntry();
+            if (entry){ await dirTraverse(entry, acc); }
+          }
+        }
+        if (acc.length){
+          await replacePlaylist(acc);
+          try { await tryAutoStart(); } catch {}
+          return true;
+        }
+        return false;
+      };
+    }
 </script>
 </body>
 </html>
