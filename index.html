@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>Baby Kaleidoscope — Minimal Gentle</title>
+<title>Baby Kaleidoscope — Ultra Slow Gentle</title>
 <link rel="icon" href="./babyface-192.png" type="image/png" />
 <style>
   html,body{height:100%;margin:0;overflow:hidden;background:#0a0a0d;color:#fff;
@@ -26,7 +26,7 @@
 </style>
 </head>
 <body>
-<canvas id="cv" width="560" height="560" title="Tap or shake to gently spin"></canvas>
+<canvas id="cv" width="560" height="560" title="Tap or shake to spin gently"></canvas>
 
 <div id="controls">
   <div id="lcd"><span>NO IMAGE — CLICK “SELECT IMAGE”</span></div>
@@ -45,129 +45,129 @@
     <button id="nextBtn">NEXT</button>
   </div>
 
-  <small class="hint">やさしくタップ / シェイク → 模様がゆっくり45°回転します</small>
+  <small class="hint">やさしくタップ / シェイク → 模様がゆっくり30°回転します</small>
 </div>
 
 <audio id="player" preload="metadata" playsinline></audio>
 <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto"></audio>
 
 <script>
-/* ====== 固定パラメータ（要求通り） ====== */
-const SECTORS = 32;  // 放射分割（固定）
-const RINGS   = 12;  // 同心リング数（固定）
+/* ===== 固定設定 ===== */
+const SECTORS=32, RINGS=12;
 
-/* ====== 基本 ====== */
+/* ===== Canvas 基本 ===== */
 const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 const W=cv.width,H=cv.height,CX=W/2,CY=H/2;
-const R2=Math.hypot(CX,CY); // 四隅まで届く半径
-
+const R2=Math.hypot(CX,CY);
 const lcdSpan=document.querySelector('#lcd span');
 
-/* ====== 画像 ====== */
+/* ===== 画像 ===== */
 const imgBtn=document.getElementById('imgBtn');
 const imgInput=document.createElement('input'); imgInput.type='file'; imgInput.accept='image/*';
 imgBtn.onclick=()=>imgInput.click();
 let img=null,imgW=0,imgH=0,imgReady=false;
 imgInput.onchange=e=>{
-  const f=e.target.files?.[0]; if(!f) return;
+  const f=e.target.files?.[0]; if(!f)return;
   const u=URL.createObjectURL(f);
   img=new Image();
-  img.onload=()=>{ imgW=img.naturalWidth; imgH=img.naturalHeight; imgReady=true;
-    lcdSpan.textContent=`IMAGE: ${f.name}`; cv.classList.add('active'); URL.revokeObjectURL(u); };
+  img.onload=()=>{imgW=img.naturalWidth;imgH=img.naturalHeight;imgReady=true;
+    lcdSpan.textContent=`IMAGE: ${f.name}`;cv.classList.add('active');URL.revokeObjectURL(u);};
   img.src=u;
 };
 
-/* ====== 音楽プレイヤー ====== */
+/* ===== 音楽プレイヤー ===== */
 const player=document.getElementById('player');
-let audioCtx, analyser, fftBins, playlist=[], urls=[], current=0;
+let audioCtx,analyser,fftBins,playlist=[],urls=[],current=0;
 function ensureAudio(){
-  if(audioCtx) return;
+  if(audioCtx)return;
   audioCtx=new (window.AudioContext||window.webkitAudioContext)();
   const src=audioCtx.createMediaElementSource(player);
-  analyser=audioCtx.createAnalyser(); analyser.fftSize=2048;
-  src.connect(analyser); analyser.connect(audioCtx.destination);
+  analyser=audioCtx.createAnalyser();analyser.fftSize=2048;
+  src.connect(analyser);analyser.connect(audioCtx.destination);
   fftBins=new Uint8Array(analyser.frequencyBinCount);
 }
 async function play(i=current){
-  if(!playlist.length) return;
+  if(!playlist.length)return;
   current=(i+playlist.length)%playlist.length;
-  player.src=urls[current]; await player.play(); ensureAudio();
+  player.src=urls[current];
+  await player.play().catch(()=>{});
+  ensureAudio();
   lcdSpan.textContent=`TRACK ${current+1}/${playlist.length}: ${playlist[current].name}`;
 }
 player.onended=()=>play(current+1);
 
 const folderBtn=document.getElementById('folderBtn');
 const audioInput=document.createElement('input');
-audioInput.type='file'; audioInput.accept='audio/*'; audioInput.multiple=true; audioInput.webkitdirectory=true;
-folderBtn.onclick=async ()=>{
+audioInput.type='file';audioInput.accept='audio/*';audioInput.multiple=true;audioInput.webkitdirectory=true;
+folderBtn.onclick=async()=>{
   try{
-    if('showDirectoryPicker' in window){
+    if('showDirectoryPicker'in window){
       const h=await window.showDirectoryPicker({mode:'read'});
-      const files=[]; async function* walk(d){ for await(const [n,ent] of d.entries()){ if(ent.kind==='file') yield await ent.getFile(); else if(ent.kind==='directory') yield* walk(ent); } }
-      for await(const f of walk(h)) files.push(f);
+      const files=[];async function*walk(d){for await(const [n,ent]of d.entries()){if(ent.kind==='file')yield await ent.getFile();else if(ent.kind==='directory')yield*walk(ent);}}
+      for await(const f of walk(h))files.push(f);
       loadFiles(files,h.name);
-    } else audioInput.click();
-  }catch{ audioInput.click(); }
+    }else audioInput.click();
+  }catch{audioInput.click();}
 };
 audioInput.onchange=e=>loadFiles([...(e.target.files||[])]);
 function loadFiles(files,label=''){
-  playlist = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
-  urls = playlist.map(f=>URL.createObjectURL(f));
-  lcdSpan.textContent = playlist.length ? `LOADED ${playlist.length} FILES${label?' — '+label:''}` : 'NO FILES';
+  playlist=files.filter(f=>(f.type&&f.type.startsWith('audio/'))||/\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
+  urls=playlist.map(f=>URL.createObjectURL(f));
+  lcdSpan.textContent=playlist.length?`LOADED ${playlist.length} FILES${label?' — '+label:''}`:'NO FILES';
 }
-document.getElementById('playBtn').onclick = ()=>play();
+document.getElementById('playBtn').onclick=()=>play();
 document.getElementById('pauseBtn').onclick=()=>player.pause();
-document.getElementById('nextBtn').onclick = ()=>play(current+1);
-document.getElementById('prevBtn').onclick = ()=>play(current-1);
+document.getElementById('nextBtn').onclick=()=>play(current+1);
+document.getElementById('prevBtn').onclick=()=>play(current-1);
 
-/* ====== オフスクリーン（やさしいモーション） ====== */
-const off=document.createElement('canvas'), octx=off.getContext('2d');
+/* ===== オフスクリーン描画（さらに穏やか） ===== */
+const off=document.createElement('canvas'),octx=off.getContext('2d');
 off.width=off.height=Math.max(W,H)*2.2;
 function motionFactor(){
-  let k=0.55;
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) k*=0.6;
+  let k=0.45;
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches)k*=0.6;
   return k;
 }
 function drawOff(t){
-  if(!imgReady) return;
-  const base=off.width, k=motionFactor();
-  const coverS=Math.max(base/imgW, base/imgH);
-  const zoom=1.04+0.02*Math.sin(t*0.18)*k;           // 微小ズーム
-  const sw=imgW/(coverS*zoom), sh=imgH/(coverS*zoom);
-  const ax=0.5+0.25*k*Math.sin(t*0.10);
-  const ay=0.5+0.25*k*Math.sin(t*0.13+1.1);
-  const sx=(imgW-sw)*ax, sy=(imgH-sh)*ay;
-  const rot=0.005*k*Math.sin(t*0.12);                // 微小回転
+  if(!imgReady)return;
+  const base=off.width,k=motionFactor();
+  const coverS=Math.max(base/imgW,base/imgH);
+  const zoom=1.02+0.015*Math.sin(t*0.12)*k;
+  const sw=imgW/(coverS*zoom),sh=imgH/(coverS*zoom);
+  const ax=0.5+0.18*k*Math.sin(t*0.06);
+  const ay=0.5+0.18*k*Math.sin(t*0.09+1.2);
+  const sx=(imgW-sw)*ax,sy=(imgH-sh)*ay;
+  const rot=0.003*k*Math.sin(t*0.08);
   octx.setTransform(1,0,0,1,0,0);
   octx.clearRect(0,0,base,base);
   octx.translate(base/2,base/2);
   octx.rotate(rot);
-  octx.drawImage(img, sx,sy,sw,sh, -sw/2, -sh/2, sw, sh);
+  octx.drawImage(img,sx,sy,sw,sh,-sw/2,-sh/2,sw,sh);
   octx.setTransform(1,0,0,1,0,0);
 }
 
-/* ====== 放射（四角断ち切り） ====== */
-function clipWedgeAnnulus(outerR, innerR, halfAng){
+/* ===== 万華鏡 ===== */
+function clipWedgeAnnulus(outerR,innerR,halfAng){
   ctx.beginPath();
   ctx.arc(0,0,outerR,-halfAng,halfAng,false);
-  ctx.arc(0,0,innerR, halfAng,-halfAng,true);
-  ctx.closePath(); ctx.clip();
+  ctx.arc(0,0,innerR,halfAng,-halfAng,true);
+  ctx.closePath();ctx.clip();
 }
 function drawRadial(baseRot){
   ctx.save();
   ctx.translate(CX,CY);
   ctx.rotate(baseRot);
-  const ang=2*Math.PI/SECTORS, half=ang/2;
+  const ang=2*Math.PI/SECTORS,half=ang/2;
   for(let i=0;i<SECTORS;i++){
     ctx.save();
     ctx.rotate(i*ang);
     for(let r=0;r<RINGS;r++){
-      const inner=R2*(r/RINGS), outer=R2*((r+1)/RINGS);
+      const inner=R2*(r/RINGS),outer=R2*((r+1)/RINGS);
       ctx.save();
-      clipWedgeAnnulus(outer, inner, half);
-      if(i%2) ctx.scale(-1,1);          // 交互ミラー
-      const K = 1 + r*0.08;             // リングごとの倍率
-      ctx.drawImage(off, -off.width/2*K, -off.height/2*K, off.width*K, off.height*K);
+      clipWedgeAnnulus(outer,inner,half);
+      if(i%2)ctx.scale(-1,1);
+      const K=1+r*0.08;
+      ctx.drawImage(off,-off.width/2*K,-off.height/2*K,off.width*K,off.height*K);
       ctx.restore();
     }
     ctx.restore();
@@ -175,16 +175,16 @@ function drawRadial(baseRot){
   ctx.restore();
 }
 
-/* ====== ゆっくりスピン（クリック/シェイク） ====== */
-let spinStart=0, spinFrom=0, spinTo=0;
-const SPIN_MS=6000;      // 6秒
-const SPIN_TURNS=0.125;  // 45°
+/* ===== スピン ===== */
+let spinStart=0,spinFrom=0,spinTo=0;
+const SPIN_MS=8000;      // ← さらにゆっくり
+const SPIN_TURNS=0.083;  // ← 約30°
 const easeOutCubic=t=>1-Math.pow(1-t,3);
 const lerp=(a,b,t)=>a+(b-a)*t;
 function currentSpin(){
-  if(!spinStart) return spinTo||0;
+  if(!spinStart)return spinTo||0;
   const p=Math.min(1,(performance.now()-spinStart)/SPIN_MS);
-  return lerp(spinFrom, spinTo, easeOutCubic(p));
+  return lerp(spinFrom,spinTo,easeOutCubic(p));
 }
 function triggerSpin(){
   const nowAngle=currentSpin();
@@ -192,46 +192,42 @@ function triggerSpin(){
   spinTo=nowAngle+SPIN_TURNS*2*Math.PI;
   spinStart=performance.now();
 }
-cv.addEventListener('click', ()=>{
+cv.addEventListener('click',()=>{
   triggerSpin();
-  try{const c=document.getElementById('chime'); c.volume=0.15; c.currentTime=0; c.play();}catch{}
+  try{const c=document.getElementById('chime');c.volume=0.15;c.currentTime=0;c.play();}catch{}
 });
 
-/* ====== シェイク（常に有効） ====== */
+/* ===== シェイク有効 ===== */
 let motionEnabled=false,lastShake=0;
 function attachShake(){
-  if(motionEnabled) return;
+  if(motionEnabled)return;
   const DME=window.DeviceMotionEvent;
-  if(DME && typeof DME.requestPermission==='function'){
+  if(DME&&typeof DME.requestPermission==='function'){
     DME.requestPermission().then(state=>{
       if(state==='granted'){window.addEventListener('devicemotion',onMotion,{passive:true});motionEnabled=true;}
     });
-  }else if('ondevicemotion' in window){
+  }else if('ondevicemotion'in window){
     window.addEventListener('devicemotion',onMotion,{passive:true});motionEnabled=true;
   }
 }
 function onMotion(e){
-  const a=e.accelerationIncludingGravity||e.acceleration; if(!a) return;
+  const a=e.accelerationIncludingGravity||e.acceleration;if(!a)return;
   const mag=Math.hypot(a.x||0,a.y||0,a.z||0);
-  if(mag>20 && performance.now()-lastShake>3500){
-    lastShake=performance.now(); triggerSpin();
+  if(mag>18&&performance.now()-lastShake>4000){
+    lastShake=performance.now();triggerSpin();
   }
 }
 attachShake();
 
-/* ====== ループ ====== */
+/* ===== ループ ===== */
 let t0=performance.now();
 (function loop(){
-  const now=performance.now(), t=(now-t0)/1000;
+  const now=performance.now(),t=(now-t0)/1000;
   drawOff(t);
-
   ctx.clearRect(0,0,W,H);
   drawRadial(currentSpin());
-
-  // 外枠
-  ctx.save(); ctx.lineWidth=6; ctx.strokeStyle='rgba(255,255,255,0.12)';
-  ctx.strokeRect(0,0,W,H); ctx.restore();
-
+  ctx.save();ctx.lineWidth=6;ctx.strokeStyle='rgba(255,255,255,0.12)';
+  ctx.strokeRect(0,0,W,H);ctx.restore();
   requestAnimationFrame(loop);
 })();
 </script>
