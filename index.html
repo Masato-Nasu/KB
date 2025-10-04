@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>Visualizer — Ultimate Loader</title>
+  <title>Gray-Scott Visualizer — Soft Deep + Shake Color</title>
+  <!-- PWA -->
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./babyface-192.png" type="image/png">
   <meta name="theme-color" content="#000000">
@@ -12,15 +13,29 @@
   <link rel="apple-touch-icon" href="./babyface-192.png">
   <style>
     html, body { height: 100%; }
-    body { margin: 0; background: #000; color: #fff; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-           display: flex; flex-direction: column; align-items: center; padding: 16px; }
-    canvas { background: #000; width: 100%; max-width: 520px; aspect-ratio: 1/1; border-radius: 8px; opacity: 0; transition: opacity .8s ease; pointer-events: none; }
+    body {
+      margin: 0; background: #000; color: #fff;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      display: flex; flex-direction: column; align-items: center; padding: 16px;
+    }
+    canvas {
+      background: #000; width: 100%; max-width: 520px; aspect-ratio: 1 / 1;
+      border-radius: 8px; opacity: 0; transition: opacity .8s ease; pointer-events: none;
+    }
     canvas.active { opacity: 1; pointer-events: auto; }
-    #controls { display: flex; flex-direction: column; align-items: stretch; width: 100%; max-width: 520px; margin-top: 16px; gap: 8px; }
-    #lcd, button, label { height: 48px; background: #111; border: 1px solid #444; color: #fff;
+
+    /* ← ここが肝：縦一列のまま */
+    #controls {
+      display: flex; flex-direction: column; align-items: stretch; width: 100%;
+      max-width: 520px; margin-top: 16px; gap: 8px;
+    }
+    #lcd, button, label {
+      height: 48px; background: #111; border: 1px solid #444; color: #fff;
       font-size: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      display: flex; align-items: center; justify-content: center; white-space: nowrap; cursor: pointer;
-      padding: 0 12px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; }
+      display: flex; align-items: center; justify-content: center; white-space: nowrap;
+      cursor: pointer; padding: 0 12px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis;
+    }
+    #lcd small { opacity: .7; margin-left: 8px; font-size: 12px; }
     #lcd span { display: inline-block; animation: scroll 12s linear infinite; }
     @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
     input[type="file"] { display: none; }
@@ -29,117 +44,276 @@
 </head>
 <body>
   <canvas id="canvas"></canvas>
+
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
-    <label id="folderButton" for="audioInputMulti">SELECT MUSIC FOLDER / FILES</label>
+    <label id="folderButton">SELECT MUSIC FOLDER / FILES</label>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
     <button id="skipButton">NEXT</button>
     <button id="backButton">PREVIOUS</button>
-    <!-- Multiple inputs to cover all browsers -->
-    <input type="file" id="audioInputMulti" accept="audio/*,application/zip,.zip" multiple>
-    <input type="file" id="audioInputFolder" accept="audio/*" webkitdirectory directory multiple>
+    <input type="file" id="audioInput" accept="audio/*" multiple webkitdirectory>
   </div>
 
   <audio id="player" preload="metadata" playsinline></audio>
-  <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto" playsinline></audio>
-
+  <!-- added: chime audio -->
+  <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto"></audio>
+  <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
   <script>
+    /* ========= Visualizer (中身だけ強化／UIは不変更) ========= */
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const size = 500; canvas.width = canvas.height = size;
+    const size = 500;
+    canvas.width = canvas.height = size;
     const imageData = ctx.createImageData(size, size);
-    const d=imageData.data;
-    const palette = [[156,149,246],[224,219,210],[230,175,194],[143,173,235],[111,201,191],[182,224,210]];
-    let colorCurrent=[...palette[0]], colorPrev=[...palette[0]], colorTarget=[...palette[0]], transitionStart=0;
-    const lerp=(a,b,t)=>a+(b-a)*t;
-    const lcdSpan=document.createElement('span'); (function(){ const lcd=document.getElementById('lcd'); lcd.innerHTML=''; lcd.appendChild(lcdSpan); })();
-    const lcd = t => (lcdSpan.textContent = t);
 
-    // simple quasicrystal draw
+    const CFG = {
+      baseF: 0.022, baseK: 0.051,
+      quietThreshold: 0.10, quietHoldMs: 400,
+      levelFeedGain: 0.0025, levelKillGain: 0.0022, paramSlew: 0.10,
+      spreadBase: 1.08, spreadAdd: 0.12, duVar: 0.05, dvVar: 0.05,
+      kToneMin: 2.6, kToneRange: 1.0,
+      whiteTint: 0.20, whiteLevel: 242,
+      transitionMs: 2600,
+      clickFlashFeed: 0.010, clickFlashKill: -0.005,
+      clickPulseMs: 200, clickPulseGain: 0.45,
+      symmetry: '4'
+    };
+
+    const palette = [
+      [156,149,246],[224,219,210],[230,175,194],
+      [143,173,235],[111,201,191],[182,224,210]
+    ];
+    let colorCurrent=[...palette[0]], colorPrev=[...palette[0]], colorTarget=[...palette[0]];
+    let transitionStart=0;
+    const lerp=(a,b,t)=>a+(b-a)*t;
+
+    let U = new Float32Array(size*size).fill(1);
+    let V = new Float32Array(size*size).fill(0);
+    for (let y=size/2-16;y<size/2+16;y++) for (let x=size/2-16;x<size/2+16;x++) V[y*size+x]=1;
+    let du=0.16, dv=0.08, flashFeed=0, flashKill=0;
+
+    function lap(f,x,y){
+      return f[((y-1+size)%size)*size+x]+f[((y+1)%size)*size+x]+
+             f[y*size+((x-1+size)%size)]+f[y*size+((x+1)%size)]-4*f[y*size+x];
+    }
+
+    const audio={rmsEma:0,rmsEma2:0,levelSmooth:0,lastLoudAt:performance.now()};
+    const clamp01=x=>Math.max(0,Math.min(1,x));
+    let feedMod=0, killMod=0;
+
+    function enforceSym(U,V){
+      const half=size>>1;
+      for(let y=0;y<half;y++)for(let x=0;x<half;x++){
+        const sx=size-1-x, sy=size-1-y;
+        const a=y*size+x, b=y*size+sx, c=sy*size+x, d=sy*size+sx;
+        const u=(U[a]+U[b]+U[c]+U[d])/4, v=(V[a]+V[b]+V[c]+V[d])/4;
+        U[a]=U[b]=U[c]=U[d]=u; V[a]=V[b]=V[c]=V[d]=v;
+      }
+    }
+
+    function step(active=true){
+      if(!active) return;
+      const U2=new Float32Array(U.length), V2=new Float32Array(V.length);
+      const lvl=audio.levelSmooth;
+
+      const targetFeed=flashFeed + lvl*CFG.levelFeedGain;
+      const targetKill=flashKill + lvl*CFG.levelKillGain;
+      feedMod += (targetFeed - feedMod)*CFG.paramSlew;
+      killMod += (targetKill - killMod)*CFG.paramSlew;
+
+      const f=CFG.baseF + feedMod, k=CFG.baseK + killMod;
+      const spread=CFG.spreadBase + lvl*CFG.spreadAdd;
+      const duNow=du*(1+lvl*CFG.duVar), dvNow=dv*(1+lvl*CFG.dvVar);
+
+      flashFeed*=0.92; flashKill*=0.92;
+
+      for(let i=0;i<U.length;i++){
+        const y=(i/size)|0, x=i%size, u=U[i], v=V[i];
+        const Lu=lap(U,x,y)*spread, Lv=lap(V,x,y)*spread;
+        U2[i]=u+(duNow*Lu - u*v*v + f*(1-u));
+        V2[i]=v+(dvNow*Lv + u*v*v - (f+k)*v);
+      }
+      enforceSym(U2,V2); U=U2; V=V2;
+    }
+
+    let clickPulseUntil=0;
     function draw(){
-      const now=performance.now(), tSec=now*0.001;
-      const progress=Math.min(1,(now-transitionStart)/2600);
+      const d=imageData.data, now=performance.now();
+      const pulseBoost = now<clickPulseUntil ? CFG.clickPulseGain : 0;
+      const kToneBase=CFG.kToneMin + audio.levelSmooth*CFG.kToneRange;
+      const kTone=kToneBase*(1+pulseBoost);
+      const norm=x=>Math.max(0,Math.min(1,x));
+      const tone=x=>(1-Math.exp(-kTone*x))/(1-Math.exp(-kTone));
+      const progress=Math.min(1,(now-transitionStart)/CFG.transitionMs);
       for(let i=0;i<3;i++) colorCurrent[i]=lerp(colorPrev[i],colorTarget[i],progress);
-      const PETALS=8, WAVES=6, FREQ=12, SPEED=0.6;
-      if(!draw._angs){ draw._angs=[]; let a=0, golden=Math.PI*(3-Math.sqrt(5)); for(let i=0;i<WAVES;i++){ draw._angs.push(a); a+=golden; } }
-      for(let i=0;i<size*size;i++){
-        const y=(i/size)|0, x=i%size;
-        const fx=(x+0.5-size/2)/(size/2), fy=(y+0.5-size/2)/(size/2);
-        const r=Math.hypot(fx,fy), ang=Math.atan2(fy,fx);
-        let s=0; for(let j=0;j<WAVES;j++){ const a=draw._angs[j]; const proj=fx*Math.cos(a)+fy*Math.sin(a); s+=Math.cos(FREQ*proj + tSec*(j+1)*SPEED + j*1.1); } s/=WAVES;
-        let base=0.5+0.5*s; base*=0.65+0.35*Math.abs(Math.cos(PETALS*ang)); base*=Math.exp(-r*r*0.85);
-        const c=(Math.min(base,0.985)*255)|0, p=i*4, whiteLevel=242, whiteTint=0.2;
-        if(c>=whiteLevel){ const tint=whiteTint; d[p]=(1-tint)*255 + tint*colorCurrent[0]; d[p+1]=(1-tint)*255 + tint*colorCurrent[1]; d[p+2]=(1-tint)*255 + tint*colorCurrent[2]; d[p+3]=255; }
-        else{ const td=1-(c/255); d[p]=(1-td)*255 + td*colorCurrent[0]; d[p+1]=(1-td)*255 + td*colorCurrent[1]; d[p+2]=(1-td)*255 + td*colorCurrent[2]; d[p+3]=255; }
+
+      for(let i=0;i<U.length;i++){
+        const base=norm((U[i]-V[i])*1.0), t=tone(base);
+        const c=(Math.min(t,0.985)*255)|0, p=i*4;
+        if(c>=CFG.whiteLevel){
+          const tint=CFG.whiteTint;
+          d[p]=(1-tint)*255 + tint*colorCurrent[0];
+          d[p+1]=(1-tint)*255 + tint*colorCurrent[1];
+          d[p+2]=(1-tint)*255 + tint*colorCurrent[2];
+          d[p+3]=255;
+        }else{
+          const td=1-(c/255);
+          d[p]=(1-td)*255 + td*colorCurrent[0];
+          d[p+1]=(1-td)*255 + td*colorCurrent[1];
+          d[p+2]=(1-td)*255 + td*colorCurrent[2];
+          d[p+3]=255;
+        }
       }
       ctx.putImageData(imageData,0,0);
     }
-    (function loop(){ draw(); requestAnimationFrame(loop); })();
-    canvas.addEventListener('click', ()=>{ try{navigator.vibrate(20);}catch{}; playChime(); });
 
-    // Audio
-    const player=document.getElementById('player'); let audioCtx, mediaSrc, analyser;
-    function ensureGraph(){ if(audioCtx) return; audioCtx=new (window.AudioContext||window.webkitAudioContext)(); mediaSrc=audioCtx.createMediaElementSource(player); analyser=audioCtx.createAnalyser(); mediaSrc.connect(analyser); analyser.connect(audioCtx.destination); }
-    function playChime(){ try{ const c=document.getElementById('chime'); c.currentTime=0; c.play().catch(()=>{});}catch{} }
-    let audioUnlocked=false; async function unlockAudioOnce(){ if(audioUnlocked) return; audioUnlocked=true; try{ ensureGraph(); }catch{} try{ if(audioCtx && audioCtx.state!=='running') await audioCtx.resume(); }catch{} try{ const c=document.getElementById('chime'); const v=c.volume; c.volume=0; await c.play(); c.pause(); c.currentTime=0; c.volume=v;}catch{} }
-    ['pointerdown','touchstart','keydown'].forEach(ev=> window.addEventListener(ev, ()=>unlockAudioOnce(), {once:true,passive:true}));
+    (function loop(){
+      const now=performance.now(), active=(now-audio.lastLoudAt)<CFG.quietHoldMs;
+      step(active); draw(); requestAnimationFrame(loop);
+    })();
 
-    let playlist=[], urls=[], current=0;
-    const nowText=()=> playlist.length ? `TRACK ${current+1}/${playlist.length}: ${playlist[current].name}` : 'NO FILES LOADED';
-    function revokeAll(){ urls.forEach(u=> URL.revokeObjectURL(u)); urls=[]; }
-    function sortNumeric(files){ return files.sort((a,b)=>{ const ra=a.name.match(/\d+/), rb=b.name.match(/\d+/); if(ra&&rb){ const na=+ra[0], nb=+rb[0]; if(na!==nb) return na-nb; } else if(ra&&!rb) return -1; else if(!ra&&rb) return 1; return a.name.localeCompare(b.name,'ja',{numeric:true,sensitivity:'base'}); }); }
-    async function replacePlaylist(files,label=''){ try{ player.pause(); }catch{} revokeAll();
-      const audioRe=/\.(mp3|m4a|aac|wav|flac|ogg)$/i;
-      playlist = sortNumeric(files.filter(f => (f.type && f.type.startsWith('audio/')) || audioRe.test(f.name||'')));
-      urls = playlist.map(f=> URL.createObjectURL(f));
-      current=0; player.src=''; lcd(playlist.length ? `LOADED ${playlist.length} files${label?' — '+label:''}` : 'NO FILES LOADED');
-      if(playlist.length){ document.getElementById('canvas').classList.add('active'); }
+    // ランダム色＋フラッシュ
+    function pickRandomDifferent(rgb){
+      let n; do { n=palette[(Math.random()*palette.length)|0]; }
+      while(n[0]===rgb[0] && n[1]===rgb[1] && n[2]===rgb[2]);
+      return [...n];
     }
-    async function play(index=current){ if(!playlist.length){ lcd('NO FILES LOADED'); return; } current=Math.max(0,Math.min(index,playlist.length-1)); if(player.src!==urls[current]) player.src=urls[current];
-      try{ ensureGraph(); try{ await audioCtx.resume(); }catch{} await player.play(); lcd(nowText()); }catch{ lcd('READY — TAP PLAY'); } }
+    function changeColorRandom(){ colorPrev=[...colorCurrent]; colorTarget=pickRandomDifferent(colorTarget); transitionStart=performance.now(); }
+    function triggerFlashPulse(){ flashFeed+=CFG.clickFlashFeed; flashKill+=CFG.clickFlashKill; clickPulseUntil=performance.now()+CFG.clickPulseMs; if('vibrate'in navigator) try{navigator.vibrate(20);}catch{} }
+
+    
+
+    // added: chime playback helper
+    function playChime(){
+      try{
+        const chime=document.getElementById('chime');
+        if(!chime) return;
+        chime.currentTime=0;
+        chime.play().catch(()=>{});
+      }catch(e){}
+    }
+
+    canvas.addEventListener('click', ()=>{ changeColorRandom(); triggerFlashPulse(); playChime(); playChime(); });
+
+    /* ========= Shake (UI変更なし) ========= */
+    let lastShake=0, lastAx=0, lastAy=0, lastAz=0;
+    function onMotion(e){
+      const a=e.accelerationIncludingGravity||{x:0,y:0,z:0};
+      const alpha=0.8;
+      const hx=alpha*(lastAx+(a.x-lastAx));
+      const hy=alpha*(lastAy+(a.y-lastAy));
+      const hz=alpha*(lastAz+(a.z-lastAz));
+      lastAx=a.x||0; lastAy=a.y||0; lastAz=a.z||0;
+      const jerk=Math.sqrt(hx*hx+hy*hy+hz*hz);
+      const threshold=18, cooldown=800;
+      if(jerk>threshold){
+        const now=performance.now();
+        if(now-lastShake>cooldown){ lastShake=now; changeColorRandom(); triggerFlashPulse(); }
+      }
+    }
+    async function tryEnableMotion(){
+      try{
+        if(typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
+          const r=await DeviceMotionEvent.requestPermission();
+          if(r!=='granted') return;
+        }
+        window.addEventListener('devicemotion', onMotion, { passive:true });
+      }catch{}
+    }
+    // ボタンは置かない。最初のユーザー操作で権限要求。
+    ['click','touchstart','pointerdown','keydown'].forEach(ev=>{
+      window.addEventListener(ev, function once(){ tryEnableMotion(); window.removeEventListener(ev, once); }, { once:true });
+    });
+
+    /* ========= Audio / UI ========= */
+    const player=document.getElementById('player');
+    let audioCtx, mediaSrc, analyser, meydaAnalyzer;
+    function ensureGraph(){
+      if(audioCtx) return;
+      audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+      mediaSrc=audioCtx.createMediaElementSource(player);
+      analyser=audioCtx.createAnalyser(); analyser.fftSize=1024;
+      mediaSrc.connect(analyser); analyser.connect(audioCtx.destination);
+      meydaAnalyzer=Meyda.createMeydaAnalyzer({
+        audioContext:audioCtx, source:analyser, bufferSize:512, featureExtractors:['rms'],
+        callback:({rms})=>{
+          if(!isFinite(rms)) rms=0;
+          const a=0.14;
+          audio.rmsEma=(1-a)*audio.rmsEma+a*rms;
+          audio.rmsEma2=(1-a)*audio.rmsEma2+a*(rms*rms);
+          const variance=Math.max(0,audio.rmsEma2-audio.rmsEma*audio.rmsEma);
+          const std=Math.sqrt(variance);
+          const floor=audio.rmsEma*0.45, ceil=audio.rmsEma+2.6*std+1e-4;
+          const lvl=clamp01((rms-floor)/Math.max(1e-4,ceil-floor));
+          const s=0.10; audio.levelSmooth=(1-s)*audio.levelSmooth + s*lvl;
+          if(audio.levelSmooth>=CFG.quietThreshold) audio.lastLoudAt=performance.now();
+        }
+      });
+      try{ meydaAnalyzer.start(); }catch{}
+    }
+
+    let canvasActivated=false, playlist=[], urls=[], current=0;
+    const lcdSpan=document.querySelector('#lcd span');
+    const lcd=t=> (lcdSpan.textContent=t);
+    const nowText=()=> playlist.length ? `TRACK ${current+1}/${playlist.length}: ${playlist[current].name}` : 'NO FILES';
+
+    function sortNumeric(files){
+      return files.sort((a,b)=>{
+        const ra=a.name.match(/\d+/), rb=b.name.match(/\d+/);
+        if(ra&&rb){ const na=+ra[0], nb=+rb[0]; if(na!==nb) return na-nb; }
+        else if(ra&&!rb) return -1; else if(!ra&&rb) return 1;
+        return a.name.localeCompare(b.name,'ja',{numeric:true,sensitivity:'base'});
+      });
+    }
+    function revokeAll(){ urls.forEach(u=>URL.revokeObjectURL(u)); urls=[]; }
+    async function replacePlaylist(files,label=''){
+      try{ player.pause(); }catch{}
+      revokeAll();
+      playlist = sortNumeric(files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name)));
+      urls = playlist.map(f=>URL.createObjectURL(f));
+      current = 0; player.src = '';
+      lcd(playlist.length ? `LOADED ${playlist.length} files${label?' — '+label:''}` : 'NO FILES');
+    }
+
+    async function play(index=current){
+      if(!playlist.length) return;
+      current = Math.max(0, Math.min(index, playlist.length-1));
+      if(player.src !== urls[current]) player.src = urls[current];
+      try{
+        await player.play();
+        ensureGraph(); try{ await audioCtx.resume(); }catch{}
+        lcd(nowText());
+        if(!canvasActivated){ canvas.classList.add('active'); canvasActivated=true; }
+      }catch(e){ console.warn(e); }
+    }
+    function pauseManual(){ try{ player.pause(); }catch{} lcd(playlist.length?`PAUSED — ${nowText()}`:'PAUSED'); }
+
+    player.addEventListener('ended', ()=> play((current+1)%playlist.length));
     document.getElementById('playButton').addEventListener('click', ()=> play(current));
-    document.getElementById('pauseButton').addEventListener('click', ()=>{ try{player.pause();}catch{} lcd(playlist.length?`PAUSED — ${nowText()}`:'PAUSED'); });
+    document.getElementById('pauseButton').addEventListener('click', pauseManual);
     document.getElementById('skipButton').addEventListener('click', ()=> play((current+1)%playlist.length));
     document.getElementById('backButton').addEventListener('click', ()=> play((current-1+playlist.length)%playlist.length));
-    async function tryAutoStart(){ try{ ensureGraph(); }catch{} try{ if(audioCtx && audioCtx.state!=='running') await audioCtx.resume(); }catch{} if(playlist.length){ try{ await play(0);}catch{} } }
 
-    // Intake routes
-    const folderButton=document.getElementById('folderButton'), inputMulti=document.getElementById('audioInputMulti'), inputFolder=document.getElementById('audioInputFolder');
-    async function pickDirectoryNative(){ const h=await window.showDirectoryPicker({mode:'read'}); const p=await h.requestPermission({mode:'read'}); if(p!=='granted') throw new DOMException('Permission denied'); const files=[]; async function* walk(dh){ for await(const [n,e] of dh.entries()){ if(e.kind==='file') yield await e.getFile(); else if(e.kind==='directory') yield* walk(e); } } for await (const f of walk(h)) files.push(f); await replacePlaylist(files, h?.name||''); await tryAutoStart(); }
-
+    const folderButton=document.getElementById('folderButton');
+    const audioInput=document.getElementById('audioInput');
     folderButton.addEventListener('click', async (e)=>{
-      const hasDir='showDirectoryPicker' in window, hasFiles='showOpenFilePicker' in window;
-      if(hasDir){ e.preventDefault(); e.stopPropagation(); try{ await pickDirectoryNative(); return; }catch{} }
-      if(hasFiles){ e.preventDefault(); e.stopPropagation(); try{ const hs=await window.showOpenFilePicker({multiple:true, types:[{description:'Audio', accept:{'audio/*':['.mp3','.m4a','.aac','.wav','.flac','.ogg']}}]}); const files=await Promise.all(hs.map(h=>h.getFile())); await replacePlaylist(files); await tryAutoStart(); return; }catch{} }
-      // fallback: let label default open input
-    }, {capture:true});
+      e.preventDefault(); e.stopPropagation();
+      try {
+        if('showDirectoryPicker' in window){
+          const h=await window.showDirectoryPicker({mode:'read'});
+          const p=await h.requestPermission({mode:'read'}); if(p!=='granted') throw new DOMException('Permission denied');
+          const files=[]; async function* walk(h){ for await(const [n,e] of h.entries()){ if(e.kind==='file') yield await e.getFile(); else if(e.kind==='directory') yield* walk(e); } }
+          for await(const f of walk(h)) files.push(f);
+          await replacePlaylist(files, h?.name||'');
+        } else { audioInput.click(); }
+      } catch { audioInput.click(); }
+    });
+    audioInput.addEventListener('change', async (e)=>{ await replacePlaylist([...e.target.files||[]]); });
 
-    function bindChange(el){ el.addEventListener('change', async (e)=>{ const files=[...(e.target.files||[])]; await replacePlaylist(files); await tryAutoStart(); }, {capture:true}); }
-    bindChange(inputMulti); bindChange(inputFolder);
-
-    window.addEventListener('dragover', e=>{ e.preventDefault(); }, {passive:false});
-    window.addEventListener('drop', async e=>{
-      e.preventDefault();
-      const dt=e.dataTransfer; const files=[];
-      if(dt.items && dt.items.length){
-        for(const item of dt.items){
-          const entry=item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
-          if(entry){
-            async function readAll(reader){ return new Promise((resolve)=>{ const all=[]; (function pump(){ reader.readEntries(ents=>{ if(!ents.length) return resolve(all); all.push(...ents); pump(); }); })(); }); }
-            async function traverse(ent){ return new Promise(async (resolve)=>{ if(ent.isFile){ ent.file(f=>{ files.push(f); resolve(); }); } else if(ent.isDirectory){ const r=ent.createReader(); const ents=await readAll(r); for(const en of ents) await traverse(en); resolve(); } else resolve(); }); }
-            await traverse(entry);
-          } else { const f = item.getAsFile && item.getAsFile(); if (f) files.push(f); }
-        }
-      } else if (dt.files && dt.files.length) { for (const f of dt.files) files.push(f); }
-      if(files.length){ await replacePlaylist(files); await tryAutoStart(); } else lcd('DROP FAILED — NO FILES');
-    }, {passive:false});
-
-    // SW
+    /* ========= SW ========= */
     if('serviceWorker' in navigator){
-      window.addEventListener('load', async ()=>{
-        try{ const reg=await navigator.serviceWorker.register('./sw.js?v6'); if(reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'}); reg.addEventListener('updatefound', ()=>{ const nw=reg.installing; if(!nw) return; nw.addEventListener('statechange', ()=>{ if(nw.state==='installed' && navigator.serviceWorker.controller){ location.reload(); } }); }); }catch(e){} });
-      navigator.serviceWorker.addEventListener('controllerchange', ()=> location.reload());
+      window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
     }
   </script>
 </body>
