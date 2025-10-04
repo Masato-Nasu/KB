@@ -25,6 +25,14 @@ let dV = 0.08;
 let f = 0.035;
 let k = 0.065;
 
+// ==== 色制御 ====
+let colorIndex = -1; // -1 = 白
+let rainbowColors = [
+  [255,0,0],[255,165,0],[255,255,0],
+  [0,255,0],[0,0,255],[75,0,130],[238,130,238]
+];
+let currentColor = [255,255,255]; // 初期は白
+
 function setup() {
   createCanvas(windowWidth, windowHeight);
   pixelDensity(1);
@@ -56,53 +64,41 @@ function draw() {
   [V, V_prev] = [V_prev, V];
 
   img.loadPixels();
+  let d = img.pixels;
   for (let y = 0; y < N; y++) {
     for (let x = 0; x < N; x++) {
       let i = x + y*N;
       let c = Math.max(0, Math.min(1, (U[i] - V[i]) * 1.2)) * 255;
       let k = (x + y*N)*4;
 
-      if (c > 250) {
-        if (colorIndex === -1) {
-          d[k] = d[k+1] = d[k+2] = 255; // 白
-        } else {
-          const col = rainbowColors[colorIndex];
-          d[k]   = col[0];
-          d[k+1] = col[1];
-          d[k+2] = col[2];
-        }
-        d[k+3] = 255;
+      if (c > 240) {
+        d[k]   = currentColor[0];
+        d[k+1] = currentColor[1];
+        d[k+2] = currentColor[2];
       } else {
         d[k] = d[k+1] = d[k+2] = c;
-        d[k+3] = 255;
       }
+      d[k+3] = 255;
     }
   }
   img.updatePixels();
   image(img, 0, 0, width, height);
 }
 
-// ==== 音と色切り替え ====
+// ==== 振動で色を切り替え ====
 let synth = new Tone.Synth().toDestination();
-let colorIndex = -1; // -1 = 白
-let rainbowColors = [
-  [255,0,0],[255,165,0],[255,255,0],
-  [0,255,0],[0,0,255],[75,0,130],[238,130,238]
-];
 let shakeTriggered = false;
 
 function handleMotion(e) {
   let acc = e.accelerationIncludingGravity;
   let magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
-  if (magnitude > 25) {
-    if (!shakeTriggered) {
-      synth.triggerAttackRelease("C4", "8n"); // 音を鳴らす
-      // 色を次に進める
-      colorIndex++;
-      if (colorIndex >= rainbowColors.length) colorIndex = -1; // 白に戻る
-      shakeTriggered = true;
-      setTimeout(()=> shakeTriggered=false, 500);
-    }
+  if (magnitude > 25 && !shakeTriggered) {
+    synth.triggerAttackRelease("C4", "8n"); // 振ったとき音を鳴らす
+    colorIndex++;
+    if (colorIndex >= rainbowColors.length) colorIndex = -1;
+    currentColor = (colorIndex === -1) ? [255,255,255] : rainbowColors[colorIndex];
+    shakeTriggered = true;
+    setTimeout(()=> shakeTriggered=false, 500);
   }
 }
 
