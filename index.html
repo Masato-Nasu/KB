@@ -1,112 +1,200 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
   <title>KaleidoBaby Visualizer</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./babyface-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="./babyface-192.png">
+  <meta name="theme-color" content="#000000">
+
   <style>
-    body { margin:0; overflow:hidden; background:black; }
-    canvas { display:block; }
+    body {
+      margin: 0;
+      background: #fff;
+      color: #000;
+      font-family: system-ui, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+    }
+    canvas {
+      background: #000;
+      width: 100%;
+      max-width: 500px;
+      aspect-ratio: 1/1;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 1s ease;
+      pointer-events: none;
+    }
+    canvas.active { opacity: 1; pointer-events: auto; }
+    #controls {
+      display: flex; flex-direction: column; align-items: stretch;
+      width: 100%; max-width: 500px; margin-top: 16px; gap: 8px;
+    }
+    #lcd, button, label {
+      height: 48px; background: #fff; border: 1px solid #000; color: #000;
+      font-size: 16px; font-family: monospace;
+      display: flex; align-items: center; justify-content: center;
+      white-space: nowrap; cursor: pointer; padding: 0 12px;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    #lcd span {
+      display: inline-block;
+      animation: scroll 10s linear infinite;
+    }
+    @keyframes scroll {
+      from { transform: translateX(100%); }
+      to   { transform: translateX(-100%); }
+    }
+    input[type="file"] { display: none; }
   </style>
 </head>
 <body>
-<script>
-let N = 200;
-let U = new Float32Array(N*N);
-let V = new Float32Array(N*N);
-let U_prev = new Float32Array(N*N);
-let V_prev = new Float32Array(N*N);
-let img;
+  <canvas id="canvas"></canvas>
+  <div id="controls">
+    <div id="lcd"><span>NO FILES LOADED</span></div>
+    <label for="audioInput">SELECT MUSIC FOLDER</label>
+    <button id="playButton">PLAY</button>
+    <button id="pauseButton">PAUSE</button>
+    <button id="skipButton">NEXT</button>
+    <button id="backButton">PREVIOUS</button>
+    <input type="file" id="audioInput" accept="audio/*" multiple webkitdirectory>
+  </div>
 
-let dU = 0.16;
-let dV = 0.08;
-let f = 0.035;
-let k = 0.065;
+  <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const size = 500;
+    canvas.width = canvas.height = size;
+    const imageData = ctx.createImageData(size, size);
+    let canvasActivated = false;
 
-// ==== 色制御 ====
-let colorIndex = -1; // -1 = 白
-let rainbowColors = [
-  [255,0,0],[255,165,0],[255,255,0],
-  [0,255,0],[0,0,255],[75,0,130],[238,130,238]
-];
-let currentColor = [255,255,255]; // 初期は白
-let shakeTriggered = false;
+    let U = new Float32Array(size * size).fill(1);
+    let V = new Float32Array(size * size).fill(0);
+    for (let y = size/2-16; y < size/2+16; y++)
+      for (let x = size/2-16; x < size/2+16; x++)
+        V[y*size+x] = 1;
 
-function setup() {
-  createCanvas(windowWidth, windowHeight);
-  pixelDensity(1);
-  img = createImage(N, N);
-  for (let i = 0; i < N*N; i++) {
-    U[i] = 1; V[i] = 0;
-  }
-  for (let y = N/2-10; y < N/2+10; y++) {
-    for (let x = N/2-10; x < N/2+10; x++) {
-      let i = x + y*N;
-      V[i] = 1;
-    }
-  }
-}
+    const du = 0.16, dv = 0.08, feedBase = 0.022, killBase = 0.051;
+    let feed = feedBase, kill = killBase;
+    let paused = false, playing = false, isSwitching = false;
+    let flashFeed = 0, flashKill = 0;
+    const pinkNoise = Array(8).fill(0);
 
-function draw() {
-  for (let y = 1; y < N-1; y++) {
-    for (let x = 1; x < N-1; x++) {
-      let i = x + y*N;
-      let lapU = U[(x-1)+y*N] + U[(x+1)+y*N] + U[x+(y-1)*N] + U[x+(y+1)*N] - 4*U[i];
-      let lapV = V[(x-1)+y*N] + V[(x+1)+y*N] + V[x+(y-1)*N] + V[x+(y+1)*N] - 4*V[i];
-      let du = dU * lapU - U[i]*V[i]*V[i] + f*(1-U[i]);
-      let dv = dV * lapV + U[i]*V[i]*V[i] - (f+k)*V[i];
-      U_prev[i] = U[i] + du;
-      V_prev[i] = V[i] + dv;
-    }
-  }
-  [U, U_prev] = [U_prev, U];
-  [V, V_prev] = [V_prev, V];
+    // 色パレット
+    const colors = [
+      [255, 0, 0], [0, 255, 0], [0, 0, 255],
+      [255, 255, 0], [255, 0, 255], [0, 255, 255],
+      [255, 160, 0], [255, 255, 255]
+    ];
+    let currentColor = 0;
 
-  img.loadPixels();
-  let d = img.pixels;
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      let i = x + y*N;
-      let c = Math.max(0, Math.min(1, (U[i] - V[i]) * 1.2)) * 255;
-      let k = (x + y*N)*4;
-
-      if (c > 200) { // 白に近い部分を色替え
-        d[k]   = currentColor[0];
-        d[k+1] = currentColor[1];
-        d[k+2] = currentColor[2];
-      } else {
-        d[k] = d[k+1] = d[k+2] = c;
+    function generatePinkNoise() {
+      let total = 0;
+      for (let i=0;i<pinkNoise.length;i++) {
+        if (Math.random() < 1/(1<<i)) pinkNoise[i] = Math.random()*2-1;
+        total += pinkNoise[i];
       }
-      d[k+3] = 255;
+      return total/pinkNoise.length;
     }
-  }
-  img.updatePixels();
-  image(img, 0, 0, width, height);
-}
+    function lap(f,x,y){
+      return f[((y-1+size)%size)*size+x]+f[((y+1)%size)*size+x]+
+             f[y*size+((x-1+size)%size)]+f[y*size+((x+1)%size)]-
+             4*f[y*size+x];
+    }
+    function step(){
+      const U2 = new Float32Array(U.length), V2 = new Float32Array(V.length);
+      const t = performance.now()/1000;
+      const pf = generatePinkNoise()*0.0015, pk = generatePinkNoise()*0.0015;
+      const f = feedBase+pf+0.0007*Math.sin(t*Math.PI/10)+flashFeed;
+      const k = killBase+pk+0.0007*Math.cos(t*Math.PI/10)+flashKill;
+      flashFeed*=0.9; flashKill*=0.9;
+      for(let i=0;i<U.length;i++){
+        const y=Math.floor(i/size), x=i%size;
+        const u=U[i], v=V[i];
+        const Lu=lap(U,x,y)*1.2;
+        const Lv=lap(V,x,y)*1.2;
+        U2[i]=u+(du*Lu-u*v*v+f*(1-u));
+        V2[i]=v+(dv*Lv+u*v*v-(f+k)*v);
+      }
+      U=U2; V=V2;
+    }
+    function draw(){
+      const d=imageData.data;
+      const [rC,gC,bC]=colors[currentColor];
+      for(let i=0;i<U.length;i++){
+        const c=Math.max(0,Math.min(1,(U[i]-V[i])*1.2))*255;
+        const k=i*4, a=c/255;
+        d[k]=rC*a; d[k+1]=gC*a; d[k+2]=bC*a; d[k+3]=255;
+      }
+      ctx.putImageData(imageData,0,0);
+    }
+    function loop(){
+      if(!paused){
+        let speed=3;
+        if(playing && meyda?._features?.rms)
+          speed=Math.min(10,Math.floor(3+meyda._features.rms*20));
+        for(let i=0;i<speed;i++) step();
+      }
+      if(canvasActivated) draw();
+      requestAnimationFrame(loop);
+    }
+    loop();
 
-// ==== 振動で色を切り替え ====
-function handleMotion(e) {
-  let acc = e.accelerationIncludingGravity;
-  let magnitude = Math.sqrt(acc.x*acc.x + acc.y*acc.y + acc.z*acc.z);
-  if (magnitude > 25 && !shakeTriggered) {
-    colorIndex++;
-    if (colorIndex >= rainbowColors.length) colorIndex = -1;
-    currentColor = (colorIndex === -1) ? [255,255,255] : rainbowColors[colorIndex];
-    shakeTriggered = true;
-    setTimeout(()=> shakeTriggered=false, 500);
-  }
-}
-
-if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-  window.addEventListener('click', ()=>{
-    DeviceMotionEvent.requestPermission().then(res=>{
-      if(res==="granted") window.addEventListener("devicemotion", handleMotion);
+    canvas.addEventListener('click',()=>{
+      flashFeed=0.08; flashKill=-0.04;
+      currentColor=(currentColor+1)%colors.length;
     });
-  }, {once:true});
-} else {
-  window.addEventListener("devicemotion", handleMotion);
-}
-</script>
+
+    let audioContext, source, meyda;
+    let playlist=[], currentTrack=0;
+    const lcdSpan=document.querySelector('#lcd span');
+
+    function initAudio(){ if(!audioContext){ audioContext=new (window.AudioContext||window.webkitAudioContext)(); } }
+    document.body.addEventListener('touchend',()=>{ if(audioContext?.state==='suspended') audioContext.resume(); },{once:true});
+
+    async function stopCurrentTrack(){ if(source){ try{source.stop();}catch{} try{source.disconnect();}catch{} source=null; } playing=false; await new Promise(r=>setTimeout(r,50)); }
+    async function loadAudioBuffer(file){ return new Promise((resolve,reject)=>{ const reader=new FileReader(); reader.onload=evt=>{ audioContext.decodeAudioData(evt.target.result).then(resolve).catch(reject); }; reader.readAsArrayBuffer(file); }); }
+    async function playTrack(index){
+      if(isSwitching||!playlist.length||index>=playlist.length)return;
+      isSwitching=true;
+      try{
+        await stopCurrentTrack(); initAudio();
+        const file=playlist[index];
+        const buffer=await loadAudioBuffer(file);
+        if(!buffer){ lcdSpan.textContent=`Decode failed: ${file.name}`; return; }
+        source=audioContext.createBufferSource(); source.buffer=buffer;
+        const analyser=audioContext.createAnalyser(); analyser.fftSize=1024;
+        source.connect(analyser); analyser.connect(audioContext.destination);
+        if(!meyda){ meyda=Meyda.createMeydaAnalyzer({audioContext,source:analyser,bufferSize:512,featureExtractors:['rms','spectralCentroid'],callback:f=>{ if(!playing||paused)return; feed=Math.min(feedBase+f.rms*0.03,0.04); kill=Math.max(killBase-f.spectralCentroid/6000*0.03,0.04); }}); meyda.start(); } else { meyda.setSource(analyser); }
+        source.onended=async()=>{ if(!playing||!source||isSwitching)return; playing=false; await stopCurrentTrack(); await audioContext.resume(); await playTrack((currentTrack+1)%playlist.length); };
+        lcdSpan.textContent=`TRACK ${index+1}: ${file.name}`;
+        playing=true; paused=false; currentTrack=index;
+        await audioContext.resume(); source.start(0);
+        if(!canvasActivated){ canvas.classList.add('active'); canvasActivated=true; }
+      }catch(e){ lcdSpan.textContent=`Error: ${e.message}`; console.error(e); } finally{ isSwitching=false; }
+    }
+    document.getElementById('audioInput').addEventListener('change',e=>{ playlist=Array.from(e.target.files).filter(f=>f.type.startsWith('audio/')).sort((a,b)=>a.name.localeCompare(b.name)); currentTrack=0; lcdSpan.textContent=playlist.length?'LOADED':'NO FILES LOADED'; });
+    document.getElementById('playButton').addEventListener('click',()=>{ if(audioContext?.state==='suspended') audioContext.resume(); else if(playlist.length) playTrack(currentTrack); });
+    document.getElementById('pauseButton').addEventListener('click',()=>{ if(audioContext?.state==='running'){ audioContext.suspend(); paused=true; } });
+    document.getElementById('skipButton').addEventListener('click',async()=>{ if(isSwitching||!playlist.length)return; await stopCurrentTrack(); await audioContext.resume(); await playTrack((currentTrack+1)%playlist.length); });
+    document.getElementById('backButton').addEventListener('click',async()=>{ if(isSwitching||!playlist.length)return; await stopCurrentTrack(); await audioContext.resume(); await playTrack((currentTrack-1+playlist.length)%playlist.length); });
+  </script>
+
+  <!-- Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(console.error);
+      });
+    }
+  </script>
 </body>
 </html>
