@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-<title>Baby Kaleidoscope — Gentle Music Visualizer</title>
+<title>Baby Kaleidoscope — Minimal Gentle</title>
 <link rel="icon" href="./babyface-192.png" type="image/png" />
 <style>
   html,body{height:100%;margin:0;overflow:hidden;background:#0a0a0d;color:#fff;
@@ -13,7 +13,7 @@
     box-shadow:0 0 40px rgba(0,0,0,.6);opacity:0;transition:opacity .6s ease;pointer-events:none}
   canvas.active{opacity:1;pointer-events:auto}
   #controls{width:100%;max-width:560px;display:flex;flex-direction:column;gap:8px}
-  #lcd,button,label,select{
+  #lcd,button,label{
     height:44px;border-radius:12px;background:#101015;border:1px solid #2e2e35;color:#fff;
     display:flex;align-items:center;justify-content:center;cursor:pointer;
     font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;padding:0 12px}
@@ -26,15 +26,13 @@
 </style>
 </head>
 <body>
-<canvas id="cv" width="560" height="560" title="Tap or shake to spin gently"></canvas>
+<canvas id="cv" width="560" height="560" title="Tap or shake to gently spin"></canvas>
 
 <div id="controls">
   <div id="lcd"><span>NO IMAGE — CLICK “SELECT IMAGE”</span></div>
 
   <div class="row">
     <label id="imgBtn">SELECT IMAGE</label>
-    <select id="sectorSel"><option>8</option><option selected>12</option><option>16</option></select>
-    <select id="ringSel"><option>3</option><option selected>5</option><option>7</option></select>
   </div>
 
   <div class="row">
@@ -47,133 +45,129 @@
     <button id="nextBtn">NEXT</button>
   </div>
 
-  <small class="hint">やさしくタップ or シェイク → 模様がゆっくり45°回転し、色がふんわり変化します 🎵</small>
+  <small class="hint">やさしくタップ / シェイク → 模様がゆっくり45°回転します</small>
 </div>
 
 <audio id="player" preload="metadata" playsinline></audio>
 <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto"></audio>
 
 <script>
-/* ====== 基本設定 ====== */
+/* ====== 固定パラメータ（要求通り） ====== */
+const SECTORS = 32;  // 放射分割（固定）
+const RINGS   = 12;  // 同心リング数（固定）
+
+/* ====== 基本 ====== */
 const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
 const W=cv.width,H=cv.height,CX=W/2,CY=H/2;
-const R2=Math.hypot(CX,CY);
+const R2=Math.hypot(CX,CY); // 四隅まで届く半径
 
 const lcdSpan=document.querySelector('#lcd span');
-const sectorSel=document.getElementById('sectorSel');
-const ringSel=document.getElementById('ringSel');
-let sectors=+sectorSel.value,rings=+ringSel.value;
-sectorSel.onchange=()=>sectors=+sectorSel.value;
-ringSel.onchange=()=>rings=+ringSel.value;
 
-/* ====== Baby Calm Motion Factor ====== */
-function motionFactor(){
-  let k=0.55;
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) k*=0.6;
-  return k;
-}
-
-/* ====== Image ====== */
+/* ====== 画像 ====== */
 const imgBtn=document.getElementById('imgBtn');
 const imgInput=document.createElement('input'); imgInput.type='file'; imgInput.accept='image/*';
 imgBtn.onclick=()=>imgInput.click();
 let img=null,imgW=0,imgH=0,imgReady=false;
 imgInput.onchange=e=>{
-  const f=e.target.files?.[0]; if(!f)return;
+  const f=e.target.files?.[0]; if(!f) return;
   const u=URL.createObjectURL(f);
   img=new Image();
-  img.onload=()=>{imgW=img.naturalWidth;imgH=img.naturalHeight;imgReady=true;
-    lcdSpan.textContent=`IMAGE: ${f.name}`;cv.classList.add('active');URL.revokeObjectURL(u);};
+  img.onload=()=>{ imgW=img.naturalWidth; imgH=img.naturalHeight; imgReady=true;
+    lcdSpan.textContent=`IMAGE: ${f.name}`; cv.classList.add('active'); URL.revokeObjectURL(u); };
   img.src=u;
 };
 
-/* ====== Music ====== */
+/* ====== 音楽プレイヤー ====== */
 const player=document.getElementById('player');
-let audioCtx,analyser,fftBins,playlist=[],urls=[],current=0;
-let lvlLow=0,lvlHigh=0,smoothLow=0,smoothHigh=0;
+let audioCtx, analyser, fftBins, playlist=[], urls=[], current=0;
 function ensureAudio(){
-  if(audioCtx)return;
+  if(audioCtx) return;
   audioCtx=new (window.AudioContext||window.webkitAudioContext)();
   const src=audioCtx.createMediaElementSource(player);
-  analyser=audioCtx.createAnalyser();analyser.fftSize=2048;
-  src.connect(analyser);analyser.connect(audioCtx.destination);
+  analyser=audioCtx.createAnalyser(); analyser.fftSize=2048;
+  src.connect(analyser); analyser.connect(audioCtx.destination);
   fftBins=new Uint8Array(analyser.frequencyBinCount);
 }
 async function play(i=current){
-  if(!playlist.length)return;
+  if(!playlist.length) return;
   current=(i+playlist.length)%playlist.length;
-  player.src=urls[current];await player.play();ensureAudio();
+  player.src=urls[current]; await player.play(); ensureAudio();
   lcdSpan.textContent=`TRACK ${current+1}/${playlist.length}: ${playlist[current].name}`;
 }
 player.onended=()=>play(current+1);
+
 const folderBtn=document.getElementById('folderBtn');
 const audioInput=document.createElement('input');
-audioInput.type='file';audioInput.accept='audio/*';audioInput.multiple=true;audioInput.webkitdirectory=true;
-folderBtn.onclick=async()=>{
+audioInput.type='file'; audioInput.accept='audio/*'; audioInput.multiple=true; audioInput.webkitdirectory=true;
+folderBtn.onclick=async ()=>{
   try{
-    if('showDirectoryPicker'in window){
+    if('showDirectoryPicker' in window){
       const h=await window.showDirectoryPicker({mode:'read'});
-      const files=[];async function*walk(d){for await(const [n,ent]of d.entries()){if(ent.kind==='file')yield await ent.getFile();else if(ent.kind==='directory')yield*walk(ent);}}
-      for await(const f of walk(h))files.push(f);
+      const files=[]; async function* walk(d){ for await(const [n,ent] of d.entries()){ if(ent.kind==='file') yield await ent.getFile(); else if(ent.kind==='directory') yield* walk(ent); } }
+      for await(const f of walk(h)) files.push(f);
       loadFiles(files,h.name);
-    }else audioInput.click();
-  }catch{audioInput.click();}
+    } else audioInput.click();
+  }catch{ audioInput.click(); }
 };
 audioInput.onchange=e=>loadFiles([...(e.target.files||[])]);
 function loadFiles(files,label=''){
-  playlist=files.filter(f=>(f.type&&f.type.startsWith('audio/'))||/\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
-  urls=playlist.map(f=>URL.createObjectURL(f));
-  lcdSpan.textContent=playlist.length?`LOADED ${playlist.length} FILES${label?' — '+label:''}`:'NO FILES';
+  playlist = files.filter(f => (f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
+  urls = playlist.map(f=>URL.createObjectURL(f));
+  lcdSpan.textContent = playlist.length ? `LOADED ${playlist.length} FILES${label?' — '+label:''}` : 'NO FILES';
 }
-document.getElementById('playBtn').onclick=()=>play();
+document.getElementById('playBtn').onclick = ()=>play();
 document.getElementById('pauseBtn').onclick=()=>player.pause();
-document.getElementById('nextBtn').onclick=()=>play(current+1);
-document.getElementById('prevBtn').onclick=()=>play(current-1);
+document.getElementById('nextBtn').onclick = ()=>play(current+1);
+document.getElementById('prevBtn').onclick = ()=>play(current-1);
 
-/* ====== Offscreen ====== */
-const off=document.createElement('canvas'),octx=off.getContext('2d');
+/* ====== オフスクリーン（やさしいモーション） ====== */
+const off=document.createElement('canvas'), octx=off.getContext('2d');
 off.width=off.height=Math.max(W,H)*2.2;
+function motionFactor(){
+  let k=0.55;
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) k*=0.6;
+  return k;
+}
 function drawOff(t){
-  if(!imgReady)return;
-  const base=off.width;
-  const k=motionFactor();
-  const coverS=Math.max(base/imgW,base/imgH);
-  const zoom=1.04+0.02*Math.sin(t*0.18)*k;
-  const sw=imgW/(coverS*zoom),sh=imgH/(coverS*zoom);
+  if(!imgReady) return;
+  const base=off.width, k=motionFactor();
+  const coverS=Math.max(base/imgW, base/imgH);
+  const zoom=1.04+0.02*Math.sin(t*0.18)*k;           // 微小ズーム
+  const sw=imgW/(coverS*zoom), sh=imgH/(coverS*zoom);
   const ax=0.5+0.25*k*Math.sin(t*0.10);
   const ay=0.5+0.25*k*Math.sin(t*0.13+1.1);
-  const sx=(imgW-sw)*ax,sy=(imgH-sh)*ay;
-  const rot=0.005*k*Math.sin(t*0.12);
+  const sx=(imgW-sw)*ax, sy=(imgH-sh)*ay;
+  const rot=0.005*k*Math.sin(t*0.12);                // 微小回転
   octx.setTransform(1,0,0,1,0,0);
   octx.clearRect(0,0,base,base);
   octx.translate(base/2,base/2);
   octx.rotate(rot);
-  octx.drawImage(img,sx,sy,sw,sh,-sw/2,-sh/2,sw,sh);
+  octx.drawImage(img, sx,sy,sw,sh, -sw/2, -sh/2, sw, sh);
   octx.setTransform(1,0,0,1,0,0);
 }
 
-/* ====== Kaleidoscope ====== */
-function clipWedgeAnnulus(outerR,innerR,halfAng){
+/* ====== 放射（四角断ち切り） ====== */
+function clipWedgeAnnulus(outerR, innerR, halfAng){
   ctx.beginPath();
   ctx.arc(0,0,outerR,-halfAng,halfAng,false);
-  ctx.arc(0,0,innerR,halfAng,-halfAng,true);
-  ctx.closePath();ctx.clip();
+  ctx.arc(0,0,innerR, halfAng,-halfAng,true);
+  ctx.closePath(); ctx.clip();
 }
 function drawRadial(baseRot){
   ctx.save();
   ctx.translate(CX,CY);
   ctx.rotate(baseRot);
-  const ang=2*Math.PI/sectors,half=ang/2;
-  for(let i=0;i<sectors;i++){
+  const ang=2*Math.PI/SECTORS, half=ang/2;
+  for(let i=0;i<SECTORS;i++){
     ctx.save();
     ctx.rotate(i*ang);
-    for(let r=0;r<rings;r++){
-      const inner=R2*(r/rings),outer=R2*((r+1)/rings);
+    for(let r=0;r<RINGS;r++){
+      const inner=R2*(r/RINGS), outer=R2*((r+1)/RINGS);
       ctx.save();
-      clipWedgeAnnulus(outer,inner,half);
-      if(i%2)ctx.scale(-1,1);
-      const K=1+r*0.08;
-      ctx.drawImage(off,-off.width/2*K,-off.height/2*K,off.width*K,off.height*K);
+      clipWedgeAnnulus(outer, inner, half);
+      if(i%2) ctx.scale(-1,1);          // 交互ミラー
+      const K = 1 + r*0.08;             // リングごとの倍率
+      ctx.drawImage(off, -off.width/2*K, -off.height/2*K, off.width*K, off.height*K);
       ctx.restore();
     }
     ctx.restore();
@@ -181,16 +175,16 @@ function drawRadial(baseRot){
   ctx.restore();
 }
 
-/* ====== Gentle Spin (click / shake) ====== */
-let spinStart=0,spinFrom=0,spinTo=0;
+/* ====== ゆっくりスピン（クリック/シェイク） ====== */
+let spinStart=0, spinFrom=0, spinTo=0;
 const SPIN_MS=6000;      // 6秒
 const SPIN_TURNS=0.125;  // 45°
 const easeOutCubic=t=>1-Math.pow(1-t,3);
 const lerp=(a,b,t)=>a+(b-a)*t;
 function currentSpin(){
-  if(!spinStart)return spinTo||0;
+  if(!spinStart) return spinTo||0;
   const p=Math.min(1,(performance.now()-spinStart)/SPIN_MS);
-  return lerp(spinFrom,spinTo,easeOutCubic(p));
+  return lerp(spinFrom, spinTo, easeOutCubic(p));
 }
 function triggerSpin(){
   const nowAngle=currentSpin();
@@ -198,72 +192,45 @@ function triggerSpin(){
   spinTo=nowAngle+SPIN_TURNS*2*Math.PI;
   spinStart=performance.now();
 }
-cv.addEventListener('click',()=>{
+cv.addEventListener('click', ()=>{
   triggerSpin();
-  try{const c=document.getElementById('chime');c.volume=0.15;c.currentTime=0;c.play();}catch{}
+  try{const c=document.getElementById('chime'); c.volume=0.15; c.currentTime=0; c.play();}catch{}
 });
 
-/* ====== Shake (always enabled) ====== */
+/* ====== シェイク（常に有効） ====== */
 let motionEnabled=false,lastShake=0;
 function attachShake(){
-  if(motionEnabled)return;
+  if(motionEnabled) return;
   const DME=window.DeviceMotionEvent;
-  if(DME&&typeof DME.requestPermission==='function'){
+  if(DME && typeof DME.requestPermission==='function'){
     DME.requestPermission().then(state=>{
       if(state==='granted'){window.addEventListener('devicemotion',onMotion,{passive:true});motionEnabled=true;}
     });
-  }else if('ondevicemotion'in window){
+  }else if('ondevicemotion' in window){
     window.addEventListener('devicemotion',onMotion,{passive:true});motionEnabled=true;
   }
 }
 function onMotion(e){
-  const a=e.accelerationIncludingGravity||e.acceleration;if(!a)return;
+  const a=e.accelerationIncludingGravity||e.acceleration; if(!a) return;
   const mag=Math.hypot(a.x||0,a.y||0,a.z||0);
-  if(mag>20&&performance.now()-lastShake>3500){
-    lastShake=performance.now();triggerSpin();
+  if(mag>20 && performance.now()-lastShake>3500){
+    lastShake=performance.now(); triggerSpin();
   }
 }
 attachShake();
 
-/* ====== Tint Fade ====== */
-let tintStart=0,tintFrom=210,tintTo=210;
-const TINT_MS=6000;
-cv.addEventListener('click',()=>{
-  tintFrom=tintTo;
-  const choices=[210,250,300,30,90,150];
-  tintTo=choices[(Math.random()*choices.length)|0];
-  tintStart=performance.now();
-});
-
-/* ====== Loop ====== */
-function hsl2rgb(h,s,l){
-  h=(h%360+360)%360;s=Math.max(0,Math.min(1,s));l=Math.max(0,Math.min(1,l));
-  const c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs(((h/60)%2)-1)),m=l-c/2;
-  let rr=0,gg=0,bb=0;
-  if(h<60){rr=c;gg=x;}else if(h<120){rr=x;gg=c;}
-  else if(h<180){gg=c;bb=x;}else if(h<240){gg=x;bb=c;}
-  else if(h<300){rr=x;bb=c;}else{rr=c;bb=x;}
-  return[(rr+m)*255,(gg+m)*255,(bb+m)*255];
-}
+/* ====== ループ ====== */
 let t0=performance.now();
 (function loop(){
-  const now=performance.now(),t=(now-t0)/1000;
+  const now=performance.now(), t=(now-t0)/1000;
   drawOff(t);
+
   ctx.clearRect(0,0,W,H);
   drawRadial(currentSpin());
-  ctx.save();ctx.lineWidth=6;ctx.strokeStyle='rgba(255,255,255,0.12)';
-  ctx.strokeRect(0,0,W,H);ctx.restore();
 
-  const p=Math.min(1,(performance.now()-tintStart)/TINT_MS);
-  const hue=tintFrom+(((tintTo-tintFrom+540)%360)-180)*p;
-  const sat=0.38,lig=0.54+0.02*Math.sin(t*0.2);
-  const [r,g,b]=hsl2rgb(hue,sat,lig);
-  ctx.save();
-  ctx.globalCompositeOperation='soft-light';
-  ctx.globalAlpha=0.35;
-  ctx.fillStyle=`rgb(${r|0},${g|0},${b|0})`;
-  ctx.fillRect(0,0,W,H);
-  ctx.restore();
+  // 外枠
+  ctx.save(); ctx.lineWidth=6; ctx.strokeStyle='rgba(255,255,255,0.12)';
+  ctx.strokeRect(0,0,W,H); ctx.restore();
 
   requestAnimationFrame(loop);
 })();
