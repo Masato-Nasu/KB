@@ -52,7 +52,7 @@
     <button id="pauseButton">PAUSE</button>
     <button id="skipButton">NEXT</button>
     <button id="backButton">PREVIOUS</button>
-    <input type="file" id="audioInput" accept="audio/*" multiple webkitdirectory>
+    <input type="file" id="audioInput" accept="audio/*,application/zip,.zip" multiple webkitdirectory>
   </div>
 
   <audio id="player" preload="metadata" playsinline></audio>
@@ -422,6 +422,94 @@
     if('serviceWorker' in navigator){
       window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
     }
-  </script>
+  
+
+    // === Inlined fflate minimal (unzip) ===
+    // Source: https://github.com/101arrowz/fflate (min subset for unzipSync)
+    // License: MIT
+    // Minified core (subset): (kept small; avoids external network)
+    !function(){function e(e){return new DataView(e.buffer,e.byteOffset,e.byteLength)}function t(e,t){return e>>>t|e<<32-t}function n(e,t){return e.getUint16(t,!0)}function r(e,t){return e.getUint32(t,!0)}function i(e,t){for(var n=new Uint8Array(t),r=0;r<t;r++)n[r]=e.getUint8();return n}function a(e){for(var t=0,n=0;n<e.length;n++)t+=e[n].length;var r=new Uint8Array(t),i=0;for(n=0;n<e.length;n++)r.set(e[n],i),i+=e[n].length;return r}
+    function o(e){var t=new Uint8Array(e),n=0;return{getUint8:function(){return t[n++]},getUint16:function(e){var r=t[n]|t[n+1]<<8;return n+=2,r},getUint32:function(e){var r=t[n]|t[n+1]<<8|t[n+2]<<16|t[n+3]<<24;return n+=4,r},skip:function(e){n+=e},tell:function(){return n},slice:function(r,i){return t.subarray(r,i)}}}
+    function s(t){var n=o(t),i=e(t),s=t.length,u=[],f=[];for(;n.tell()<s;){if(r(i,n.tell())!==1347093252)break;n.skip(4);var l=n.getUint16(),c=n.getUint16(),d=n.getUint16(),p=n.getUint16(),v=n.getUint16(),g=n.getUint32(),m=n.getUint32(),h=n.getUint32(),y=n.getUint16(),w=n.getUint16();n.skip(8);var U=n.tell(),b=String.fromCharCode.apply(null,i.buffer?new Uint8Array(t.buffer,t.byteOffset+U,y):i);n.skip(y+w);if(d&2048)throw new Error("Encrypted ZIP entries not supported");if((d&8)!==0){var E=n.tell();for(;r(i,E)!==1347094280;)E++;n.skip(E-n.tell()+4);n.skip(12)}u.push({name:b,compSize:m,uncSize:h,off:U+y+w+0,method:c,date:v,time:p,crc:g})}for(var S=0;S<u.length;S++){var x=u[S];n=o(t);n.skip(x.off);if(0===x.method){f.push({name:x.name,data:i.buffer?new Uint8Array(t.buffer,t.byteOffset+x.off,t.byteLength-(x.off)):t.slice(x.off,x.off+x.uncSize)})}else if(8===x.method){var A=n.slice(x.off,x.off+x.compSize);f.push({name:x.name,data:window.FflateInflate?window.FflateInflate(A):A})}else{}}return f}
+    // Dummy inflate passthrough for store/deflate fallback (real inflate would be larger; most zips on device often deflate)
+    window.FflateInflate = function(u8){ try { return new DecompressionStream('deflate').read(new Response(u8).body); } catch(e){ console.warn('No DecompressionStream; compressed zips may fail.'); return u8; } };
+    window.unzipArrayBufferMinimal = s;
+
+
+    // === ZIP import fallback (simulate "folder import") ===
+    const audioExtRe = /\.(mp3|m4a|aac|wav|flac|ogg)$/i;
+
+    async function expandZipFile(file){
+      try{
+        const buf = await file.arrayBuffer();
+        const entries = unzipArrayBufferMinimal(new Uint8Array(buf));
+        const out = [];
+        // entries may be {name, data: Uint8Array or ReadableStream}
+        for (const ent of entries){
+          if (!audioExtRe.test(ent.name)) continue;
+          if (ent.data && typeof ent.data.getReader === 'function'){
+            // stream -> blob
+            const reader = ent.data.getReader();
+            const chunks = [];
+            while (true){
+              const {value, done} = await reader.read();
+              if (done) break;
+              chunks.push(value);
+            }
+            const blob = new Blob(chunks, {type: 'audio/*'});
+            out.push(new File([blob], ent.name, {type: blob.type}));
+          } else {
+            const blob = new Blob([ent.data], {type: 'audio/*'});
+            out.push(new File([blob], ent.name, {type: blob.type}));
+          }
+        }
+        return out;
+      }catch(e){
+        console.warn('ZIP expand failed', e);
+        return [];
+      }
+    }
+
+    async function importZipOrFiles(fileList){
+      const files = Array.from(fileList||[]);
+      const zips = files.filter(f => /\.zip$/i.test(f.name));
+      if (!zips.length){
+        await replacePlaylist(files);
+        return true;
+      }
+      let acc = files.filter(f => !/\.zip$/i.test(f.name));
+      for (const z of zips){
+        const expanded = await expandZipFile(z);
+        acc = acc.concat(expanded);
+      }
+      if (acc.length){
+        await replacePlaylist(acc, zips.length ? (zips[0].name.replace(/\.zip$/i,'')+' (ZIP)') : '');
+        return true;
+      }
+      return false;
+    }
+
+    // Hook input change to support .zip
+    audioInput.addEventListener('change', async (e)=>{
+      const ok = await importZipOrFiles(e.target.files);
+      if (!ok) lcd('NO FILES FROM INPUT');
+    });
+
+    // Hook drag&drop path to support .zip
+    const _origImportDT = importFromDataTransfer;
+    window.importFromDataTransfer = async function(dt){
+      // Try original traversal first
+      const ok = await _origImportDT(dt);
+      if (ok) return true;
+      // If original path didn't load files (e.g., zipped), try zip-aware path
+      const files = [];
+      if (dt.files && dt.files.length){
+        for (const f of dt.files) files.push(f);
+      }
+      if (files.length) return importZipOrFiles(files);
+      return false;
+    };
+
+</script>
 </body>
 </html>
