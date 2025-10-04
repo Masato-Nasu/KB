@@ -204,7 +204,82 @@
     let playlist = [], urls = [], current = 0;
     const lcdSpan = document.querySelector('#lcd span');
     const lcd = t => (lcdSpan.textContent = t);
-    const nowText = () => playlist.length ? `TRACK ${current+1}/${playlist.length}: ${playlist[current].name}` : 'NO FILES';
+    
+    // ===== Pattern styles (no UI change; long-press canvas to cycle) =====
+    const STYLES = ['Ripple', 'Hex Weave', 'Aurora', 'Sakura'];
+    let STYLE = parseInt(localStorage.getItem('patternMode')||'0',10)%STYLES.length;
+
+    function cycleStyle(){
+      STYLE = (STYLE + 1) % STYLES.length;
+      localStorage.setItem('patternMode', String(STYLE));
+      if (typeof lcd === 'function') lcd('STYLE: ' + STYLES[STYLE]);
+      transitionStart = performance.now();
+    }
+
+    // Long-press (600ms) on canvas to change style
+    (function(){
+      let tId=null;
+      function start(){ clearTimeout(tId); tId=setTimeout(cycleStyle, 600); }
+      function end(){ clearTimeout(tId); }
+      canvas.addEventListener('pointerdown', start, {passive:true});
+      canvas.addEventListener('pointerup', end, {passive:true});
+      canvas.addEventListener('pointerleave', end, {passive:true});
+      canvas.addEventListener('touchstart', start, {passive:true});
+      canvas.addEventListener('touchend', end, {passive:true});
+    })();
+
+    // base field generator for styles; returns [0,1]
+    function baseField(fx, fy, t){
+      const r = Math.hypot(fx, fy);
+      const ang = Math.atan2(fy, fx);
+      const clamp01 = (x)=> Math.max(0, Math.min(1, x));
+
+      if (STYLE === 0){ // Ripple: soft water ripples with gentle interference
+        const k1 = 10.0, k2 = 16.0, s1 = 0.7, s2 = 0.45;
+        const w1 = Math.sin(k1*r - t*s1);
+        const w2 = Math.sin(k2*(r + 0.15*Math.sin(3.0*ang)) - t*s2);
+        let b = 0.5 + 0.5*(0.65*w1 + 0.35*w2);
+        b *= Math.exp(-r*r*0.8);
+        return clamp01(b);
+      }
+
+      if (STYLE === 1){ // Hex Weave: tri-directional cosine lattice (0°, 60°, 120°)
+        const k = 12.0, speed = 0.5;
+        const a0 = 0, a1 = Math.PI/3, a2 = 2*Math.PI/3;
+        const p0 = fx*Math.cos(a0)+fy*Math.sin(a0);
+        const p1 = fx*Math.cos(a1)+fy*Math.sin(a1);
+        const p2 = fx*Math.cos(a2)+fy*Math.sin(a2);
+        let s = (Math.cos(k*p0 - t*speed) + Math.cos(k*p1 + t*speed*0.9) + Math.cos(k*p2 - t*speed*1.1)) / 3;
+        s = Math.sign(s) * Math.pow(Math.abs(s), 0.8); // soften
+        let b = 0.5 + 0.5*s;
+        b *= Math.exp(-r*r*0.65);
+        return clamp01(b);
+      }
+
+      if (STYLE === 2){ // Aurora: flowing bands (layered rotated sines)
+        const kA=7.0, kB=11.0, kC=4.5;
+        const aA = 0.35*Math.PI, aB = -0.15*Math.PI, aC = 0.62*Math.PI;
+        const pA = fx*Math.cos(aA)+fy*Math.sin(aA);
+        const pB = fx*Math.cos(aB)+fy*Math.sin(aB);
+        const pC = fx*Math.cos(aC)+fy*Math.sin(aC);
+        const sA = Math.sin(kA*pA + t*0.35);
+        const sB = Math.sin(kB*pB - t*0.22);
+        const sC = Math.sin(kC*pC + t*0.12);
+        let b = 0.5 + 0.5*(0.55*sA + 0.3*sB + 0.15*sC);
+        b = 0.85*b + 0.15*Math.exp(-r*r*1.2);
+        return clamp01(b);
+      }
+
+      // Sakura: petal-like radial bloom
+      const petals = 8, pow=2.2, freq=9.0, speed=0.5;
+      const ring = Math.sin(freq*r - t*speed);
+      const petal = Math.pow(Math.max(0, Math.cos(petals*ang)), pow);
+      let b = 0.5 + 0.5*(0.7*ring);
+      b *= 0.6 + 0.4*petal;
+      b *= Math.exp(-r*r*0.9);
+      return clamp01(b);
+    }
+const nowText = () => playlist.length ? `TRACK ${current+1}/${playlist.length}: ${playlist[current].name}` : 'NO FILES';
 
     function sortNumeric(files){
       return files.sort((a,b)=>{
