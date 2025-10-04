@@ -1,6 +1,6 @@
 {
-  "name": "KaleidoBaby",
-  "short_name": "KaleidoBaby",
+  "name": "KaleidoBaby Neo",
+  "short_name": "KaleidoNeo",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#000000",
