@@ -1,256 +1,289 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>KaleidoBaby Visualizer — Gradient Click (Big Pattern)</title>
-  <link rel="manifest" href="./manifest.json">
-  <link rel="icon" href="./babyface-192.png" type="image/png">
-  <meta name="theme-color" content="#000000">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="apple-touch-icon" href="./babyface-192.png">
-  <style>
-    html, body { height: 100%; overflow: hidden; }
-    body {
-      margin: 0;
-      font-family: system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      background: linear-gradient(45deg, #000000, #111111);
-      background-size: 200% 200%;
-      transition: background 2.5s ease;
-    }
-    body.gradient {
-      background-position: 100% 0%;
-    }
-    canvas {
-      background: transparent;
-      width: 100%; max-width: 520px; aspect-ratio: 1/1;
-      border-radius: 10px; opacity: 0; transition: opacity .8s ease; pointer-events: none;
-    }
-    canvas.active { opacity: 1; pointer-events: auto; }
-    #controls {
-      display: flex; flex-direction: column; align-items: stretch;
-      width: 100%; max-width: 520px; margin-top: 16px; gap: 8px;
-    }
-    #lcd, button, label {
-      height: 48px; background: #111; border: 1px solid #444; color: #fff;
-      font-size: 16px; border-radius: 10px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-    }
-    #lcd span { animation: scroll 12s linear infinite; display: inline-block; white-space: nowrap; }
-    @keyframes scroll { from{transform:translateX(100%);}to{transform:translateX(-100%);} }
-    input[type="file"]{display:none;}
-    audio{display:none;}
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
+<title>Radial Kaleidoscope — Square Cut / Spin on Tap & Shake</title>
+<link rel="icon" href="./babyface-192.png" type="image/png" />
+<style>
+  html,body{height:100%;margin:0;overflow:hidden;background:#0b0b10;color:#fff;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  body{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;gap:16px}
+  canvas{width:100%;max-width:560px;aspect-ratio:1/1;background:#000;
+    box-shadow:0 0 60px rgba(0,0,0,.7);opacity:0;transition:opacity .6s ease;pointer-events:none}
+  canvas.active{opacity:1;pointer-events:auto}
+  #controls{width:100%;max-width:560px;display:flex;flex-direction:column;gap:8px}
+  #lcd,button,label,select{
+    height:46px;border-radius:10px;background:#0f0f12;border:1px solid #3a3a3f;color:#fff;
+    display:flex;align-items:center;justify-content:center;cursor:pointer;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;padding:0 12px}
+  #lcd{overflow:hidden}
+  #lcd span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .row{display:flex;gap:8px}
+  .row>*{flex:1}
+  input[type=file],audio{display:none}
+  small.hint{opacity:.7}
+</style>
 </head>
 <body>
-  <canvas id="canvas"></canvas>
+<canvas id="cv" width="560" height="560" title="Tap or shake to spin"></canvas>
 
-  <div id="controls">
-    <div id="lcd"><span>NO FILES LOADED</span></div>
-    <label id="folderButton">SELECT MUSIC FOLDER / FILES</label>
-    <button id="playButton">PLAY</button>
-    <button id="pauseButton">PAUSE</button>
-    <button id="skipButton">NEXT</button>
-    <button id="backButton">PREVIOUS</button>
-    <input type="file" id="audioInput" accept="audio/*" multiple webkitdirectory>
+<div id="controls">
+  <div id="lcd"><span>NO IMAGE — CLICK “SELECT IMAGE”</span></div>
+  <div class="row">
+    <label id="imgBtn">SELECT IMAGE</label>
+    <select id="sectorSel"><option>8</option><option selected>12</option><option>16</option><option>24</option></select>
+    <select id="ringSel"><option>3</option><option selected>5</option><option>7</option><option>9</option></select>
   </div>
+  <div class="row">
+    <label id="folderBtn">SELECT MUSIC FOLDER / FILES</label>
+    <button id="playBtn">PLAY</button>
+  </div>
+  <div class="row">
+    <button id="pauseBtn">PAUSE</button>
+    <button id="prevBtn">PREV</button>
+    <button id="nextBtn">NEXT</button>
+  </div>
+  <small class="hint">Tap/Click or gently shake your phone → the kaleidoscope spins 360°</small>
+</div>
 
-  <audio id="player" preload="metadata" playsinline></audio>
-  <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto"></audio>
+<audio id="player" preload="metadata" playsinline></audio>
+<audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto"></audio>
 
-  <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
-  <script>
-  const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
-  const size=500; canvas.width=canvas.height=size;
-  const imageData=ctx.createImageData(size,size);
-  const CFG={
-    baseF:0.020, baseK:0.045,
-    quietThreshold:0.10, quietHoldMs:400,
-    levelFeedGain:0.0025, levelKillGain:0.0022, paramSlew:0.10,
-    spreadBase:0.90, spreadAdd:0.08,
-    duVar:0.05, dvVar:0.05,
-    kToneMin:2.6, kToneRange:1.0,
-    whiteTint:0.20, whiteLevel:242,
-    transitionMs:2600,
-    clickFlashFeed:0.010, clickFlashKill:-0.005,
-    clickPulseMs:200, clickPulseGain:0.45
-  };
+<script>
+/* ===== Base ===== */
+const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const W=cv.width, H=cv.height, CX=W/2, CY=H/2;
+const R2=Math.hypot(CX,CY); // 四隅まで届く半径
 
-  const palette=[[156,149,246],[224,219,210],[230,175,194],[143,173,235],[111,201,191],[182,224,210]];
-  let colorCurrent=[...palette[0]],colorPrev=[...palette[0]],colorTarget=[...palette[0]];
-  let transitionStart=0; const lerp=(a,b,t)=>a+(b-a)*t;
-  let U=new Float32Array(size*size).fill(1),V=new Float32Array(size*size).fill(0);
-  for(let y=size/2-16;y<size/2+16;y++)for(let x=size/2-16;x<size/2+16;x++)V[y*size+x]=1;
-  let du=0.24,dv=0.12,flashFeed=0,flashKill=0;
+const lcdSpan=document.querySelector('#lcd span');
+const sectorSel=document.getElementById('sectorSel');
+const ringSel=document.getElementById('ringSel');
+let sectors=+sectorSel.value, rings=+ringSel.value;
+sectorSel.onchange=()=>sectors=+sectorSel.value;
+ringSel.onchange=()=>rings=+ringSel.value;
 
-  function lap(f,x,y){
-    return f[((y-1+size)%size)*size+x]+f[((y+1)%size)*size+x]+
-           f[y*size+((x-1+size)%size)]+f[y*size+((x+1)%size)]-4*f[y*size+x];
-  }
+/* ===== Image (cover) ===== */
+const imgBtn=document.getElementById('imgBtn');
+const imgInput=document.createElement('input'); imgInput.type='file'; imgInput.accept='image/*';
+imgBtn.onclick=()=>imgInput.click();
+let img=null,imgW=0,imgH=0,imgReady=false;
+imgInput.onchange=e=>{
+  const f=e.target.files?.[0]; if(!f) return;
+  const u=URL.createObjectURL(f);
+  img=new Image();
+  img.onload=()=>{ imgW=img.naturalWidth; imgH=img.naturalHeight; imgReady=true;
+    lcdSpan.textContent=`IMAGE: ${f.name}`; cv.classList.add('active'); URL.revokeObjectURL(u); };
+  img.src=u;
+};
 
-  // 放射対称（6分割）で大きめの面を作る
-  function enforceSym(U,V){
-    const half=size>>1;
-    for(let y=0;y<half;y++)for(let x=0;x<half;x++){
-      const sx=size-1-x,sy=size-1-y,rx=y,ry=x;
-      const a=y*size+x,b=y*size+sx,c=sy*size+x,d=sy*size+sx,e=ry*size+rx,f=rx*size+ry;
-      const u=(U[a]+U[b]+U[c]+U[d]+U[e]+U[f])/6, v=(V[a]+V[b]+V[c]+V[d]+V[e]+V[f])/6;
-      U[a]=U[b]=U[c]=U[d]=U[e]=U[f]=u; V[a]=V[b]=V[c]=V[d]=V[e]=V[f]=v;
-    }
-  }
+/* ===== Music (任意) ===== */
+const player=document.getElementById('player');
+let audioCtx, analyser, fftBins, playlist=[], urls=[], current=0;
+let lvlLow=0,lvlHigh=0,smoothLow=0,smoothHigh=0;
 
-  const audio={levelSmooth:0,lastLoudAt:performance.now()};
-  let feedMod=0,killMod=0;
-  const clamp01=x=>Math.max(0,Math.min(1,x));
+function ensureAudio(){
+  if(audioCtx) return;
+  audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+  const src=audioCtx.createMediaElementSource(player);
+  analyser=audioCtx.createAnalyser(); analyser.fftSize=2048;
+  src.connect(analyser); analyser.connect(audioCtx.destination);
+  fftBins=new Uint8Array(analyser.frequencyBinCount);
+}
+async function play(i=current){
+  if(!playlist.length) return;
+  current=(i+playlist.length)%playlist.length;
+  player.src=urls[current];
+  await player.play(); ensureAudio();
+  lcdSpan.textContent=`TRACK ${current+1}/${playlist.length}: ${playlist[current].name}`;
+}
+player.onended=()=>play(current+1);
 
-  function step(active=true){
-    if(!active)return;
-    const U2=new Float32Array(U.length),V2=new Float32Array(V.length);
-    const lvl=audio.levelSmooth;
-    const targetFeed=flashFeed+lvl*CFG.levelFeedGain;
-    const targetKill=flashKill+lvl*CFG.levelKillGain;
-    feedMod+=(targetFeed-feedMod)*CFG.paramSlew;
-    killMod+=(targetKill-killMod)*CFG.paramSlew;
-    const f=CFG.baseF+feedMod,k=CFG.baseK+killMod;
-    const duNow=du*(1+lvl*CFG.duVar),dvNow=dv*(1+lvl*CFG.dvVar);
-    flashFeed*=0.92; flashKill*=0.92;
-    for(let i=0;i<U.length;i++){
-      const y=(i/size)|0,x=i%size,u=U[i],v=V[i];
-      const Lu=lap(U,x,y),Lv=lap(V,x,y);
-      U2[i]=u+(duNow*Lu - u*v*v + f*(1-u));
-      V2[i]=v+(dvNow*Lv + u*v*v - (f+k)*v);
-    }
-    enforceSym(U2,V2);U=U2;V=V2;
-  }
-
-  let clickPulseUntil=0;
-  function draw(){
-    const d=imageData.data,now=performance.now();
-    const pulseBoost=now<clickPulseUntil?CFG.clickPulseGain:0;
-    const kToneBase=CFG.kToneMin+audio.levelSmooth*CFG.kToneRange;
-    const kTone=kToneBase*(1+pulseBoost);
-    const norm=x=>Math.max(0,Math.min(1,x));
-    const tone=x=>Math.pow((1-Math.exp(-kTone*x))/(1-Math.exp(-kTone)),1.15); // 少しだけ立体感
-    const progress=Math.min(1,(now-transitionStart)/CFG.transitionMs);
-    for(let i=0;i<3;i++)colorCurrent[i]=lerp(colorPrev[i],colorTarget[i],progress);
-    for(let i=0;i<U.length;i++){
-      const base=norm((U[i]-V[i])*1.0),t=tone(base);
-      const c=(Math.min(t,0.985)*255)|0,p=i*4;
-      if(c>=CFG.whiteLevel){
-        const tint=CFG.whiteTint;
-        d[p]=(1-tint)*255+tint*colorCurrent[0];
-        d[p+1]=(1-tint)*255+tint*colorCurrent[1];
-        d[p+2]=(1-tint)*255+tint*colorCurrent[2];
-      }else{
-        const td=1-(c/255);
-        d[p]=(1-td)*255+td*colorCurrent[0];
-        d[p+1]=(1-td)*255+td*colorCurrent[1];
-        d[p+2]=(1-td)*255+td*colorCurrent[2];
-      }
-      d[p+3]=255;
-    }
-    ctx.putImageData(imageData,0,0);
-  }
-
-  (function loop(){
-    const now=performance.now(),active=(now-audio.lastLoudAt)<CFG.quietHoldMs;
-    step(active);draw();requestAnimationFrame(loop);
-  })();
-
-  function pickRandomDifferent(rgb){let n;do{n=palette[(Math.random()*palette.length)|0];}while(n[0]===rgb[0]&&n[1]===rgb[1]&&n[2]===rgb[2]);return[...n];}
-  function changeColorRandom(){colorPrev=[...colorCurrent];colorTarget=pickRandomDifferent(colorTarget);transitionStart=performance.now();}
-  function triggerFlashPulse(){flashFeed+=CFG.clickFlashFeed;flashKill+=CFG.clickFlashKill;clickPulseUntil=performance.now()+CFG.clickPulseMs;if('vibrate'in navigator)navigator.vibrate(20);}
-  function playChime(){const c=document.getElementById('chime');if(!c)return;c.currentTime=0;c.play().catch(()=>{});}
-
-  // クリックでグラデ背景遷移
-  canvas.addEventListener('click',()=>{
-    changeColorRandom();triggerFlashPulse();playChime();
-    const body=document.body;
-    body.style.background=`linear-gradient(45deg, rgb(${colorCurrent.join(',')}), rgb(${colorTarget.join(',')}))`;
-    body.classList.toggle('gradient');
-  });
-
-  /* シェイク */
-  let lastShake=0;
-  function onMotion(e){
-    const a=e.accelerationIncludingGravity||{x:0,y:0,z:0};
-    const jerk=Math.sqrt(a.x*a.x+a.y*a.y+a.z*a.z);
-    const threshold=18,cooldown=800;
-    if(jerk>threshold){
-      const now=performance.now();
-      if(now-lastShake>cooldown){lastShake=now;changeColorRandom();triggerFlashPulse();}
-    }
-  }
-  async function tryEnableMotion(){
-    if(typeof DeviceMotionEvent!=='undefined'&&typeof DeviceMotionEvent.requestPermission==='function'){
-      const r=await DeviceMotionEvent.requestPermission();if(r!=='granted')return;
-    }
-    window.addEventListener('devicemotion',onMotion,{passive:true});
-  }
-  ['click','touchstart','pointerdown','keydown'].forEach(ev=>{
-    window.addEventListener(ev,function once(){tryEnableMotion();window.removeEventListener(ev,once);},{once:true});
-  });
-
-  /* Audio + UI（簡略だが動作同等） */
-  const player=document.getElementById('player');
-  let audioCtx,mediaSrc,analyser,meydaAnalyzer;
-  function ensureGraph(){
-    if(audioCtx)return;
-    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-    mediaSrc=audioCtx.createMediaElementSource(player);
-    analyser=audioCtx.createAnalyser();analyser.fftSize=1024;
-    mediaSrc.connect(analyser);analyser.connect(audioCtx.destination);
-    meydaAnalyzer=Meyda.createMeydaAnalyzer({
-      audioContext:audioCtx,source:analyser,bufferSize:512,featureExtractors:['rms'],
-      callback:({rms})=>{
-        if(!isFinite(rms))rms=0;
-        const a=0.14; const ema=(1-a)*(window._ema||0)+a*rms; window._ema=ema;
-        audio.levelSmooth=(1-0.10)*(audio.levelSmooth||0)+0.10*rms;
-        if(audio.levelSmooth>=CFG.quietThreshold)audio.lastLoudAt=performance.now();
-      }
-    });
-    try{meydaAnalyzer.start();}catch{}
-  }
-
-  let playlist=[],urls=[],current=0;
-  const lcdSpan=document.querySelector('#lcd span');
-  const lcd=t=>lcdSpan.textContent=t;
-  function sortNumeric(files){return files.sort((a,b)=>a.name.localeCompare(b.name,'ja',{numeric:true}));}
-  async function replacePlaylist(files){urls=files.map(f=>URL.createObjectURL(f));playlist=sortNumeric(files);current=0;lcd(`LOADED ${files.length} files`);}
-  async function play(index=current){
-    if(!playlist.length)return;
-    current=Math.max(0,Math.min(index,playlist.length-1));
-    if(player.src!==urls[current])player.src=urls[current];
-    await player.play();ensureGraph();
-    if(!canvas.classList.contains('active'))canvas.classList.add('active');
-    lcd(`TRACK ${current+1}/${playlist.length}: ${playlist[current].name}`);
-  }
-  function pauseManual(){player.pause();lcd('PAUSED');}
-  player.addEventListener('ended',()=>play((current+1)%playlist.length));
-  document.getElementById('playButton').addEventListener('click',()=>play(current));
-  document.getElementById('pauseButton').addEventListener('click',pauseManual);
-  document.getElementById('skipButton').addEventListener('click',()=>play((current+1)%playlist.length));
-  document.getElementById('backButton').addEventListener('click',()=>play((current-1+playlist.length)%playlist.length));
-
-  const folderButton=document.getElementById('folderButton');
-  const audioInput=document.getElementById('audioInput');
-  folderButton.addEventListener('click',async(e)=>{
-    e.preventDefault();
-    if('showDirectoryPicker'in window){
+const folderBtn=document.getElementById('folderBtn');
+const audioInput=document.createElement('input');
+audioInput.type='file'; audioInput.accept='audio/*'; audioInput.multiple=true; audioInput.webkitdirectory=true;
+folderBtn.onclick=async()=>{
+  try{
+    if('showDirectoryPicker' in window){
       const h=await window.showDirectoryPicker({mode:'read'});
-      const files=[];async function*walk(h){for await(const[n,e]of h.entries()){if(e.kind==='file')yield await e.getFile();else if(e.kind==='directory')yield*walk(e);}}
-      for await(const f of walk(h))files.push(f);
-      await replacePlaylist(files,h.name);
+      const files=[]; async function* walk(d){for await(const [n,ent]of d.entries()){if(ent.kind==='file')yield await ent.getFile(); else if(ent.kind==='directory')yield* walk(ent);}}
+      for await(const f of walk(h)) files.push(f);
+      loadFiles(files, h.name);
     }else audioInput.click();
-  });
-  audioInput.addEventListener('change',async(e)=>{await replacePlaylist([...e.target.files||[]]);});
+  }catch{ audioInput.click(); }
+};
+audioInput.onchange=e=>loadFiles([...(e.target.files||[])]);
+function loadFiles(files,label=''){
+  playlist=files.filter(f=>(f.type && f.type.startsWith('audio/')) || /\.(mp3|m4a|aac|wav|flac|ogg)$/i.test(f.name));
+  urls=playlist.map(f=>URL.createObjectURL(f));
+  lcdSpan.textContent=playlist.length?`LOADED ${playlist.length} FILES${label?' — '+label:''}`:'NO FILES';
+}
+document.getElementById('playBtn').onclick=()=>play();
+document.getElementById('pauseBtn').onclick=()=>player.pause();
+document.getElementById('nextBtn').onclick=()=>play(current+1);
+document.getElementById('prevBtn').onclick=()=>play(current-1);
 
-  if('serviceWorker'in navigator){
-    window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+/* ===== Offscreen（常にゆっくり動くソース） ===== */
+const off=document.createElement('canvas'), octx=off.getContext('2d');
+off.width=off.height=Math.max(W,H)*2.2;
+function drawOff(t){
+  if(!imgReady) return;
+  const base=off.width;
+  const coverS=Math.max(base/imgW, base/imgH);
+  const zoom = 1.12 + 0.06*Math.sin(t*0.35) + smoothLow*0.05; // 呼吸＋低音
+  const sw=imgW/(coverS*zoom), sh=imgH/(coverS*zoom);
+  const ax=0.5+0.45*Math.sin(t*0.18);
+  const ay=0.5+0.45*Math.sin(t*0.23+1.3);
+  const sx=(imgW-sw)*ax, sy=(imgH-sh)*ay;
+  const rot=0.02*Math.sin(t*0.22) + smoothHigh*0.03; // 高音で少し
+
+  octx.setTransform(1,0,0,1,0,0);
+  octx.clearRect(0,0,base,base);
+  octx.translate(base/2,base/2);
+  octx.rotate(rot);
+  octx.drawImage(img, sx,sy,sw,sh, -sw/2, -sh/2, sw, sh);
+  octx.setTransform(1,0,0,1,0,0);
+}
+
+/* ===== 放射状（外周は四角で断ち切り） ===== */
+function clipWedgeAnnulus(outerR, innerR, halfAng){
+  ctx.beginPath();
+  ctx.arc(0,0,outerR,-halfAng,halfAng,false);
+  ctx.arc(0,0,innerR, halfAng,-halfAng,true);
+  ctx.closePath(); ctx.clip();
+}
+function drawRadial(baseRot){
+  ctx.save();
+  ctx.translate(CX,CY);
+  ctx.rotate(baseRot);             // ← 全体の回転をここで反映
+  const ang=2*Math.PI/sectors, half=ang/2;
+  for(let i=0;i<sectors;i++){
+    ctx.save();
+    ctx.rotate(i*ang);
+    for(let r=0;r<rings;r++){
+      const inner=R2*(r/rings), outer=R2*((r+1)/rings);
+      ctx.save();
+      clipWedgeAnnulus(outer, inner, half);
+      if(i%2) ctx.scale(-1,1);
+      const K=1+r*0.10;
+      ctx.drawImage(off, -off.width/2*K, -off.height/2*K, off.width*K, off.height*K);
+      ctx.restore();
+    }
+    ctx.restore();
   }
-  </script>
+  ctx.restore();
+}
+
+/* ===== クリック/シェイク → 360°回転（緩やかなEasing） ===== */
+let spinStart=0, spinFrom=0, spinTo=0;
+const SPIN_MS=1200; // 回転にかける時間
+const easeInOutCubic=t=>t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+const lerp=(a,b,t)=>a+(b-a)*t;
+function currentSpin(){
+  if(!spinStart) return spinTo||0;
+  const p=Math.min(1,(performance.now()-spinStart)/SPIN_MS);
+  return lerp(spinFrom, spinTo, easeInOutCubic(p));
+}
+function triggerSpin(turns=1){
+  const nowAngle=currentSpin();
+  spinFrom=nowAngle;
+  spinTo = nowAngle + turns*2*Math.PI;
+  spinStart=performance.now();
+}
+cv.addEventListener('click', ()=>{
+  triggerSpin(1);      // 1回転
+  try{const c=document.getElementById('chime'); c.currentTime=0; c.play();}catch{}
+});
+
+/* ---- Device Motion (shake) ---- */
+let motionEnabled=false, lastShake=0;
+function enableMotionIfNeeded(){
+  if(motionEnabled) return;
+  const DME=window.DeviceMotionEvent;
+  if(DME && typeof DME.requestPermission==='function'){
+    // iOS
+    DME.requestPermission().then(state=>{
+      if(state==='granted'){attachShake(); motionEnabled=true;}
+    }).catch(()=>{});
+  }else if('ondevicemotion' in window){
+    attachShake(); motionEnabled=true;
+  }
+}
+function attachShake(){
+  window.addEventListener('devicemotion', e=>{
+    const a=e.accelerationIncludingGravity||e.acceleration; if(!a) return;
+    const mag=Math.hypot(a.x||0,a.y||0,a.z||0);
+    // 簡易しきい値＋クールダウン
+    if(mag>18 && performance.now()-lastShake>1400){
+      lastShake=performance.now();
+      triggerSpin(1);
+    }
+  }, {passive:true});
+}
+// 最初のタップで許可を取りに行く（iOS用）
+cv.addEventListener('pointerdown', enableMotionIfNeeded, {once:false});
+
+/* ===== クリック：色のロングフェードも維持 ===== */
+let tintStart=0, tintFrom=210, tintTo=210;
+cv.addEventListener('click', ()=>{
+  tintFrom=tintTo;
+  const choices=[210,260,315,30,90,150];
+  tintTo=choices[(Math.random()*choices.length)|0];
+  tintStart=performance.now();
+});
+
+/* ===== ループ ===== */
+function hsl2rgb(h,s,l){
+  h=(h%360+360)%360; s=Math.max(0,Math.min(1,s)); l=Math.max(0,Math.min(1,l));
+  const c=(1-Math.abs(2*l-1))*s, x=c*(1-Math.abs(((h/60)%2)-1)), m=l-c/2;
+  let rr=0,gg=0,bb=0;
+  if(h<60){rr=c;gg=x;} else if(h<120){rr=x;gg=c;}
+  else if(h<180){gg=c;bb=x;} else if(h<240){gg=x;bb=c;}
+  else if(h<300){rr=x;bb=c;} else {rr=c;bb=x;}
+  return[(rr+m)*255,(gg+m)*255,(bb+m)*255];
+}
+let t0=performance.now();
+(function loop(){
+  const now=performance.now(), t=(now-t0)/1000;
+
+  // 音のスムージング（控えめ）
+  if(analyser){
+    analyser.getByteFrequencyData(fftBins);
+    const len=fftBins.length, nyq=audioCtx.sampleRate/2;
+    let low=0,ln=0, high=0,hn=0;
+    for(let i=0;i<len;i++){
+      const f=i/len*nyq, v=fftBins[i]/255;
+      if(f<250){low+=v;ln++;} else if(f>4000&&f<12000){high+=v;hn++;}
+    }
+    lvlLow=ln?low/ln:0; lvlHigh=hn?high/hn:0;
+  }
+  smoothLow = 0.96*smoothLow + 0.04*lvlLow;
+  smoothHigh= 0.96*smoothHigh+ 0.04*lvlHigh;
+
+  drawOff(t);
+
+  ctx.clearRect(0,0,W,H);
+  drawRadial(currentSpin());      // ← 回転角を適用
+
+  // 外枠（四角）
+  ctx.save(); ctx.lineWidth=8; ctx.strokeStyle='rgba(255,255,255,0.15)';
+  ctx.strokeRect(0,0,W,H); ctx.restore();
+
+  // ソフトライト色チント（クリックでゆっくり色変化）
+  const dur=2600, p=Math.min(1,(performance.now()-tintStart)/dur);
+  const hue=tintFrom+(((tintTo-tintFrom+540)%360)-180)*p;
+  const sat=0.46+0.12*smoothHigh;
+  const lig=0.52+0.03*Math.sin(t*0.3);
+  const [r,g,b]=hsl2rgb(hue,sat,lig);
+  ctx.save();
+  ctx.globalCompositeOperation='soft-light';
+  ctx.globalAlpha=0.55;
+  ctx.fillStyle=`rgb(${r|0},${g|0},${b|0})`;
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+
+  requestAnimationFrame(loop);
+})();
+</script>
 </body>
 </html>
