@@ -435,8 +435,24 @@ catch{} }
       lcd('SELECT FILES — (Folder picker unsupported on this platform)');
     });
 /* ========= SW ========= */
-    if('serviceWorker' in navigator){
-      window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', async () => {
+        try {
+          const ver = 'v5';
+          const reg = await navigator.serviceWorker.register('./sw.js?' + ver);
+          if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+          reg.addEventListener('updatefound', () => {
+            const nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', () => {
+              if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                location.reload();
+              }
+            });
+          });
+        } catch (e) {}
+      });
+      navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
     }
   
 
