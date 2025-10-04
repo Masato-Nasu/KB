@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-  <title>KaleidoBaby — Shake or Tap Chime</title>
+  <title>KaleidoBaby — Shake Chime</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./babyface-192.png" type="image/png">
   <meta name="theme-color" content="#000000">
@@ -17,18 +17,20 @@
   <script>
     // Service Worker
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js?v=4');
+      navigator.serviceWorker.register('./sw.js?v=3');
     }
   </script>
 </head>
 <body>
+  <!-- 見えないUI。初回タップで権限を取って消える -->
   <div id="hint" class="center">
     <div>
       <div style="font-size:1.2rem">画面をタップすると準備完了</div>
-      <div style="opacity:.75;font-size:.95rem">その後、スマホを<strong>振る</strong>か<strong>画面をタップ</strong>すると「チャイム音」＋色変化</div>
+      <div style="opacity:.75;font-size:.95rem">その後、スマホを<strong>振る</strong>と「チャイム音」＋色変化</div>
     </div>
   </div>
 
+  <!-- 実音源（ユーザーが提供した .m4a） -->
   <audio id="chime" src="./Sparkling Chime Sound.m4a" preload="auto"></audio>
 
   <script>
@@ -39,25 +41,33 @@
     let lastShake = 0;
     let permissionGranted = false;
 
+    // iOS 13+ 用: ジャイロ/加速度の権限
     async function ensureMotionPermission(){
       try{
         if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function'){
           const state = await DeviceMotionEvent.requestPermission();
           permissionGranted = (state === 'granted');
         }else{
-          permissionGranted = true;
+          permissionGranted = true; // Android/PC など
         }
-      }catch(e){ permissionGranted = true; }
+      }catch(e){
+        permissionGranted = true;
+      }
     }
 
+    // Audio の解錠（ユーザー操作で一度 play→即停止）
     async function unlockAudio(){
       try{
         await audioEl.play();
+        // ほぼ無音区間にするため一瞬で停止
         audioEl.pause();
         audioEl.currentTime = 0;
-      }catch(e){}
+      }catch(e){
+        // 無視（Safari 等で既に解錠済み）
+      }
     }
 
+    // 初回タップで権限＋Audio解錠
     function prime(){
       document.removeEventListener('touchend', prime, {passive:true});
       document.removeEventListener('click', prime);
@@ -68,43 +78,38 @@
     document.addEventListener('touchend', prime, {passive:true});
     document.addEventListener('click', prime);
 
-    // シェイク検出
+    // シンプルなシェイク検出
     window.addEventListener('devicemotion', (e)=>{
       if(!permissionGranted) return;
       const a = e.accelerationIncludingGravity || e.acceleration;
       if(!a) return;
       const m = Math.sqrt((a.x||0)**2 + (a.y||0)**2 + (a.z||0)**2);
       const now = performance.now();
-      if (m > 15 && (now - lastShake) > 800) {
+      if (m > 15 && (now - lastShake) > 800) { // 0.8s クールダウン
         onShake();
         lastShake = now;
       }
     });
 
-    // ✅ タップでもチャイム発火
-    document.addEventListener('touchend', ()=>{
-      if(!hint.classList.contains('hide')) return; // 準備前は無効
-      onShake();
-    }, {passive:true});
-
-    document.addEventListener('click', ()=>{
-      if(!hint.classList.contains('hide')) return;
-      onShake();
-    });
+    // 画面叩いた勢いでも反応させたいなら（任意）
+    // document.addEventListener('keydown', (e)=>{ if(e.code==='Space') onShake(); });
 
     function onShake(){
       playChime();
       spinColor();
+      // 既存コード連携用フック
       window.dispatchEvent(new Event('shake'));
     }
 
     function playChime(){
+      // .m4a をそのまま再生（重なりを避けるため都度複製）
       try{
         const el = audioEl.cloneNode();
         el.play().catch(()=>{});
       }catch(e){}
     }
 
+    // 背景色をランダムに（既存UIに干渉しない最小限の演出）
     function spinColor(){
       const h = Math.floor(Math.random()*360);
       const s = 82, l = 52;
@@ -112,6 +117,7 @@
       document.documentElement.style.setProperty('--fg', `rgba(255,255,255,.92)`);
     }
 
+    // ページ復帰時に Audio を再解錠（端末によっては必要）
     document.addEventListener('visibilitychange', ()=>{
       if (!document.hidden) unlockAudio();
     });
