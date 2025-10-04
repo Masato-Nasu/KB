@@ -47,7 +47,7 @@
 
   <div id="controls">
     <div id="lcd"><span>NO FILES LOADED</span></div>
-    <label id="folderButton">SELECT MUSIC FOLDER / FILES</label>
+    <label id="folderButton" for="audioInput">SELECT MUSIC FOLDER / FILES</label>
     <button id="playButton">PLAY</button>
     <button id="pauseButton">PAUSE</button>
     <button id="skipButton">NEXT</button>
@@ -332,7 +332,93 @@
     });
     audioInput.addEventListener('change', async (e)=>{ await replacePlaylist([...e.target.files||[]]); });
 
-    /* ========= SW ========= */
+    
+    // === Enhanced file/folder import (multi-platform) ===
+    async function showOpenFiles(){
+      if ('showOpenFilePicker' in window) {
+        try {
+          const handles = await window.showOpenFilePicker({
+            multiple: true,
+            types: [{ description: 'Audio', accept: { 'audio/*': ['.mp3','.m4a','.aac','.wav','.flac','.ogg'] } }]
+          });
+          const files = await Promise.all(handles.map(h => h.getFile()));
+          await replacePlaylist(files);
+          return true;
+        } catch(e) { /* user canceled */ }
+      }
+      return false;
+    }
+
+    async function pickDirectory(){
+      if ('showDirectoryPicker' in window) {
+        try {
+          const h = await window.showDirectoryPicker({mode:'read'});
+          const p = await h.requestPermission({mode:'read'});
+          if (p !== 'granted') throw new DOMException('Permission denied');
+          const files=[];
+          async function* walk(dh){ for await (const [n,e] of dh.entries()){ if(e.kind==='file') yield await e.getFile(); else if(e.kind==='directory') yield* walk(e); } }
+          for await (const f of walk(h)) files.push(f);
+          await replacePlaylist(files, h?.name||'');
+          return true;
+        } catch(e) { /* fall through */ }
+      }
+      return false;
+    }
+
+    async function importFromDataTransfer(dt){
+      const files = [];
+      if (dt.items && dt.items.length) {
+        for (const item of dt.items) {
+          const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+          if (entry) {
+            async function traverse(entry){
+              return new Promise((resolve) => {
+                if (entry.isFile) {
+                  entry.file(f => { files.push(f); resolve(); });
+                } else if (entry.isDirectory) {
+                  const reader = entry.createReader();
+                  reader.readEntries(async entries => {
+                    const tasks = [];
+                    for (const ent of entries) tasks.push(traverse(ent));
+                    Promise.all(tasks).then(()=>resolve());
+                  });
+                } else { resolve(); }
+              });
+            }
+            await traverse(entry);
+          } else {
+            const f = item.getAsFile && item.getAsFile();
+            if (f) files.push(f);
+          }
+        }
+      } else if (dt.files && dt.files.length) {
+        for (const f of dt.files) files.push(f);
+      }
+      if (files.length) {
+        await replacePlaylist(files);
+        return true;
+      }
+      return false;
+    }
+
+    // Global drag & drop (no UI change)
+    window.addEventListener('dragover', e => { e.preventDefault(); }, { passive:false });
+    window.addEventListener('drop', async e => {
+      e.preventDefault();
+      const ok = await importFromDataTransfer(e.dataTransfer);
+      if (!ok) lcd('DROP FAILED — NO FILES');
+    }, { passive:false });
+
+    // Folder button: try directory → open files → <input> fallback
+    folderButton.addEventListener('click', async (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      if (await pickDirectory()) return;
+      if (await showOpenFiles()) return;
+      // final fallback: input element
+      audioInput.click();
+      lcd('SELECT FILES — (Folder picker unsupported on this platform)');
+    });
+/* ========= SW ========= */
     if('serviceWorker' in navigator){
       window.addEventListener('load', ()=> navigator.serviceWorker.register('./sw.js').catch(()=>{}));
     }
