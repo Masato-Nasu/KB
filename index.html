@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no" />
-  <title>KaleidoBaby Visualizer — Gradient Click</title>
+  <title>KaleidoBaby Visualizer — Gradient Click (Big Pattern)</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" href="./babyface-192.png" type="image/png">
   <meta name="theme-color" content="#000000">
@@ -39,7 +39,7 @@
       display: flex; align-items: center; justify-content: center;
       font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
     }
-    #lcd span { animation: scroll 12s linear infinite; display: inline-block; }
+    #lcd span { animation: scroll 12s linear infinite; display: inline-block; white-space: nowrap; }
     @keyframes scroll { from{transform:translateX(100%);}to{transform:translateX(-100%);} }
     input[type="file"]{display:none;}
     audio{display:none;}
@@ -66,26 +66,32 @@
   const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
   const size=500; canvas.width=canvas.height=size;
   const imageData=ctx.createImageData(size,size);
-  const CFG={baseF:0.022,baseK:0.051,quietThreshold:0.10,quietHoldMs:400,
-    levelFeedGain:0.0025,levelKillGain:0.0022,paramSlew:0.10,
-    spreadBase:1.08,spreadAdd:0.12,duVar:0.05,dvVar:0.05,
-    kToneMin:2.6,kToneRange:1.0,whiteTint:0.20,whiteLevel:242,
-    transitionMs:2600,clickFlashFeed:0.010,clickFlashKill:-0.005,
-    clickPulseMs:200,clickPulseGain:0.45};
+  const CFG={
+    baseF:0.020, baseK:0.045,
+    quietThreshold:0.10, quietHoldMs:400,
+    levelFeedGain:0.0025, levelKillGain:0.0022, paramSlew:0.10,
+    spreadBase:0.90, spreadAdd:0.08,
+    duVar:0.05, dvVar:0.05,
+    kToneMin:2.6, kToneRange:1.0,
+    whiteTint:0.20, whiteLevel:242,
+    transitionMs:2600,
+    clickFlashFeed:0.010, clickFlashKill:-0.005,
+    clickPulseMs:200, clickPulseGain:0.45
+  };
 
   const palette=[[156,149,246],[224,219,210],[230,175,194],[143,173,235],[111,201,191],[182,224,210]];
   let colorCurrent=[...palette[0]],colorPrev=[...palette[0]],colorTarget=[...palette[0]];
   let transitionStart=0; const lerp=(a,b,t)=>a+(b-a)*t;
   let U=new Float32Array(size*size).fill(1),V=new Float32Array(size*size).fill(0);
   for(let y=size/2-16;y<size/2+16;y++)for(let x=size/2-16;x<size/2+16;x++)V[y*size+x]=1;
-  let du=0.16,dv=0.08,flashFeed=0,flashKill=0;
+  let du=0.24,dv=0.12,flashFeed=0,flashKill=0;
 
   function lap(f,x,y){
     return f[((y-1+size)%size)*size+x]+f[((y+1)%size)*size+x]+
            f[y*size+((x-1+size)%size)]+f[y*size+((x+1)%size)]-4*f[y*size+x];
   }
 
-  // ★万華鏡放射対称（6分割っぽい）
+  // 放射対称（6分割）で大きめの面を作る
   function enforceSym(U,V){
     const half=size>>1;
     for(let y=0;y<half;y++)for(let x=0;x<half;x++){
@@ -127,7 +133,7 @@
     const kToneBase=CFG.kToneMin+audio.levelSmooth*CFG.kToneRange;
     const kTone=kToneBase*(1+pulseBoost);
     const norm=x=>Math.max(0,Math.min(1,x));
-    const tone=x=>Math.pow((1-Math.exp(-kTone*x))/(1-Math.exp(-kTone)),1.3); // ★立体的補正
+    const tone=x=>Math.pow((1-Math.exp(-kTone*x))/(1-Math.exp(-kTone)),1.15); // 少しだけ立体感
     const progress=Math.min(1,(now-transitionStart)/CFG.transitionMs);
     for(let i=0;i<3;i++)colorCurrent[i]=lerp(colorPrev[i],colorTarget[i],progress);
     for(let i=0;i<U.length;i++){
@@ -159,7 +165,7 @@
   function triggerFlashPulse(){flashFeed+=CFG.clickFlashFeed;flashKill+=CFG.clickFlashKill;clickPulseUntil=performance.now()+CFG.clickPulseMs;if('vibrate'in navigator)navigator.vibrate(20);}
   function playChime(){const c=document.getElementById('chime');if(!c)return;c.currentTime=0;c.play().catch(()=>{});}
 
-  // ★クリック時にグラデ背景遷移
+  // クリックでグラデ背景遷移
   canvas.addEventListener('click',()=>{
     changeColorRandom();triggerFlashPulse();playChime();
     const body=document.body;
@@ -167,7 +173,7 @@
     body.classList.toggle('gradient');
   });
 
-  /* Shake */
+  /* シェイク */
   let lastShake=0;
   function onMotion(e){
     const a=e.accelerationIncludingGravity||{x:0,y:0,z:0};
@@ -188,7 +194,7 @@
     window.addEventListener(ev,function once(){tryEnableMotion();window.removeEventListener(ev,once);},{once:true});
   });
 
-  /* Audio + UI 略（元のコードと同じ） */
+  /* Audio + UI（簡略だが動作同等） */
   const player=document.getElementById('player');
   let audioCtx,mediaSrc,analyser,meydaAnalyzer;
   function ensureGraph(){
@@ -201,18 +207,19 @@
       audioContext:audioCtx,source:analyser,bufferSize:512,featureExtractors:['rms'],
       callback:({rms})=>{
         if(!isFinite(rms))rms=0;
-        const a=0.14;audio.levelSmooth=(1-a)*audio.levelSmooth+a*rms;
+        const a=0.14; const ema=(1-a)*(window._ema||0)+a*rms; window._ema=ema;
+        audio.levelSmooth=(1-0.10)*(audio.levelSmooth||0)+0.10*rms;
         if(audio.levelSmooth>=CFG.quietThreshold)audio.lastLoudAt=performance.now();
       }
     });
-    meydaAnalyzer.start();
+    try{meydaAnalyzer.start();}catch{}
   }
 
   let playlist=[],urls=[],current=0;
   const lcdSpan=document.querySelector('#lcd span');
-  const lcd=t=>(lcdSpan.textContent=t);
+  const lcd=t=>lcdSpan.textContent=t;
   function sortNumeric(files){return files.sort((a,b)=>a.name.localeCompare(b.name,'ja',{numeric:true}));}
-  async function replacePlaylist(files){urls=files.map(f=>URL.createObjectURL(f));playlist=files;current=0;lcd(`LOADED ${files.length} files`);}
+  async function replacePlaylist(files){urls=files.map(f=>URL.createObjectURL(f));playlist=sortNumeric(files);current=0;lcd(`LOADED ${files.length} files`);}
   async function play(index=current){
     if(!playlist.length)return;
     current=Math.max(0,Math.min(index,playlist.length-1));
