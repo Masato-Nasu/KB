@@ -1,25 +1,21 @@
 self.addEventListener('install', e=>{
   self.skipWaiting();
-  e.waitUntil(caches.open('kaleidobaby-ref-v1').then(c=>c.addAll([
-    './',
-    './index.html',
-    './manifest.json',
-    './icon-192.png',
-    './icon-512.png',
-    './Sparkling Chime Sound.m4a'
+  e.waitUntil(caches.open('loader-v6').then(c=>c.addAll([
+    './','./index.html','./manifest.json','./babyface-192.png','./babyface-512.png','./Sparkling Chime Sound.m4a'
   ])));
 });
 self.addEventListener('activate', e=>{
   e.waitUntil((async()=>{
-    const keys = await caches.keys();
-    await Promise.all(keys.filter(k=>k!=='kaleidobaby-ref-v1').map(k=>caches.delete(k)));
+    const keys=await caches.keys();
+    await Promise.all(keys.filter(k=>k!=='loader-v6').map(k=>caches.delete(k)));
     await self.clients.claim();
   })());
 });
+self.addEventListener('message', e=>{ if(e.data && e.data.type==='SKIP_WAITING') self.skipWaiting(); });
 self.addEventListener('fetch', e=>{
   e.respondWith((async()=>{
-    const cached = await caches.match(e.request, {ignoreSearch:true});
-    if (cached) return cached;
-    try{ const res = await fetch(e.request); return res; }catch(e){ return cached || Response.error(); }
+    const cached=await caches.match(e.request,{ignoreSearch:true});
+    if(cached) return cached;
+    try{ return await fetch(e.request); }catch(e){ return cached || Response.error(); }
   })());
 });
