@@ -1,11 +1,12 @@
-// sw.js v1 for Aurora Ribbons
-const CACHE='aurora-ribbons-v1';
+// sw.js v1 for BabyShapes
+const CACHE='baby-shapes-v1';
 const ASSETS=[
   './',
   './index.html?v=1',
   './manifest.json?v=1',
   './icon-192.png',
-  './icon-512.png'
+  './icon-512.png',
+  './Chime.mp3'
 ];
 self.addEventListener('install',e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)));
