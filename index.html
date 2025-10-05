@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v10</title>
-<link rel="manifest" href="./manifest.json?v=24">
+<title>Square Radiant Player v11</title>
+<link rel="manifest" href="./manifest.json?v=25">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -44,7 +44,7 @@
     <button id="play" class="btn">▶ / ❚❚</button>
     <button id="next" class="btn">次 →</button>
   </div>
-  <div class="muted">v24: 円の外に“黒スペース”を残す（OUT_DIAM_RATIO=0.85）。画像拡大率は 1.8 倍。</div>
+  <div class="muted">v25: 円形クリッピング廃止・ズーム補正対応・拡大率1.8。黒スペースは背景で維持。</div>
 </div>
 
 <script>
@@ -56,13 +56,13 @@
 
   // パラメータ
   let SEGS = 60, N = 18;
-  const scaleFactor = 1.8;     // ★各タイルの拡大率（あなたの指定）
+  const scaleFactor = 1.8;     // ★各タイルの拡大率
   const bleed = 6;             // ブリード
   const overlap = 0.06;        // 重なり
   const dprCap = 1.2;
   const scaleCrop = 1.05;
-  const FILL_OVERSCAN = 1.35;  // 内部描画は外側までしっかり
-  const OUT_DIAM_RATIO = 0.85; // ★黒スペースを残すための表示円サイズ（対角比）
+  const FILL_OVERSCAN = 1.35;  // 内部描画半径
+  // 円形クリップは廃止（全面描画）
 
   const cores = navigator.hardwareConcurrency || 4;
   const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
@@ -166,7 +166,15 @@
     cv.width = cv.height = Math.max(300, Math.floor(s*dpr));
     cv.style.width = cv.style.height = Math.max(300, Math.floor(s)) + "px";
   }
-  window.addEventListener('resize',fit,{passive:true}); fit();
+  window.addEventListener('resize',fit,{passive:true}); 
+  fit();
+
+  // ▼ ズーム補正：DPRの変化を監視してfit()再実行
+  let lastDPR = window.devicePixelRatio;
+  setInterval(() => {
+    const now = window.devicePixelRatio;
+    if (now !== lastDPR) { lastDPR = now; fit(); }
+  }, 500);
 
   let t=0;
   function draw(){
@@ -228,15 +236,6 @@
         ctx.restore();
       }
       ctx.restore();
-
-      // 円形クリッピング（外側に黒スペースを残す）
-      const outRadius = (Math.hypot(w,h) * OUT_DIAM_RATIO)/2;
-      ctx.save();
-      ctx.globalCompositeOperation="destination-in";
-      ctx.beginPath();
-      ctx.arc(w/2, h/2, outRadius, 0, Math.PI*2);
-      ctx.fill();
-      ctx.restore();
     }
 
     let boost=0;
@@ -254,7 +253,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=24");
+  navigator.serviceWorker.register("./sw.js?v=25");
 }
 </script>
 </body>
