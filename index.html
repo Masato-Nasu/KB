@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v11</title>
-<link rel="manifest" href="./manifest.json?v=25">
+<title>Square Radiant Player v12</title>
+<link rel="manifest" href="./manifest.json?v=26">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -19,18 +19,20 @@
   canvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);transition:filter 1.2s ease;}
   .flash{filter:brightness(2);transition:filter 0.2s ease;}
   .controls{
-    display:flex;flex-wrap:wrap;gap:8px;
-    justify-content:center;align-items:center;
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;
+    align-items:center;
     padding:12px;background:var(--panel);
-    border-radius:12px;margin:6px;max-width:1100px
+    border-radius:12px;margin:6px;max-width:1100px;width:100%
   }
-  .btn{
+  .btn, .range, .toggle{
     appearance:none;border:0;border-radius:10px;
     background:#171a20;color:#eaeef8;
-    padding:10px 12px;display:inline-flex;
+    padding:10px 12px;display:flex;
     align-items:center;gap:8px;cursor:pointer
   }
-  .btn:active{transform:translateY(1px)}
+  .range{padding:8px 12px}
+  .row{display:flex;align-items:center;gap:8px}
+  input[type="range"]{width:120px}
   .muted{color:#8b90a1;font-size:12px;margin-top:-6px}
 </style>
 </head>
@@ -43,8 +45,14 @@
     <button id="prev" class="btn">← 前</button>
     <button id="play" class="btn">▶ / ❚❚</button>
     <button id="next" class="btn">次 →</button>
+
+    <div class="row range">明るさ <input id="brightness" type="range" min="0.6" max="1.6" step="0.02" value="1.00"></div>
+    <div class="row range">コントラスト <input id="contrast" type="range" min="0.6" max="1.6" step="0.02" value="1.00"></div>
+    <div class="row range">彩度 <input id="saturation" type="range" min="0.0" max="2.0" step="0.02" value="1.00"></div>
+    <label class="toggle"><input id="autoExpose" type="checkbox" checked>自動露出</label>
+    <label class="toggle"><input id="antiGap" type="checkbox" checked>アンチギャップ強化</label>
   </div>
-  <div class="muted">v25: 円形クリッピング廃止・ズーム補正対応・拡大率1.8。黒スペースは背景で維持。</div>
+  <div class="muted">v26: 白飛び/黒くさび対策（露出調整・セグメント重なり強化・ズーム補正）。円形クリップなし。</div>
 </div>
 
 <script>
@@ -52,24 +60,24 @@
   const cv = document.getElementById('cv');
   const ctx = cv.getContext('2d');
   ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   const stage = document.getElementById('stage');
 
-  // パラメータ
-  let SEGS = 60, N = 18;
-  const scaleFactor = 1.8;     // ★各タイルの拡大率
-  const bleed = 6;             // ブリード
-  const overlap = 0.06;        // 重なり
-  const dprCap = 1.2;
+  // パラメータ（動的に変える前提）
+  let SEGS = 72, N = 18;
+  let sliceOverlapRatio = 0.015; // 角度方向の重なり（1.5%）
+  const scaleFactor = 1.8;
+  let bleed = 6;
+  let overlap = 0.06;
+  const dprCap = 1.4;
   const scaleCrop = 1.05;
-  const FILL_OVERSCAN = 1.35;  // 内部描画半径
-  // 円形クリップは廃止（全面描画）
+  const FILL_OVERSCAN = 1.35;
 
   const cores = navigator.hardwareConcurrency || 4;
   const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-  if (!isMobile && cores >= 8) { SEGS = 68; N = 20; }
-  if (isMobile) { SEGS = 52; N = 16; }
+  if (isMobile) { SEGS = 60; N = 16; }
 
-  // 画像を中央正方形トリミング & 1.05x拡大
+  // 画像読み込み & 露出正規化
   async function prepareImageBitmap(img){
     const s = Math.min(img.width, img.height);
     const sx = (img.width - s)/2;
@@ -79,6 +87,25 @@
     octx.translate(s/2, s/2);
     octx.scale(scaleCrop, scaleCrop);
     octx.drawImage(img, sx - img.width/2 + s/2, sy - img.height/2 + s/2);
+    // 露出正規化（平均輝度を0.55付近へ）
+    if (document.getElementById('autoExpose').checked){
+      const imgData = octx.getImageData(0,0,s,s);
+      let sum=0;
+      for(let i=0;i<imgData.data.length;i+=4){
+        const r=imgData.data[i], g=imgData.data[i+1], b=imgData.data[i+2];
+        const lum = (0.2126*r + 0.7152*g + 0.0722*b)/255;
+        sum += lum;
+      }
+      const avg = sum / (s*s);
+      const target = 0.55;
+      const gain = Math.min(1.8, Math.max(0.6, target/(avg+1e-6)));
+      for(let i=0;i<imgData.data.length;i+=4){
+        imgData.data[i  ] = Math.max(0, Math.min(255, imgData.data[i]*gain));
+        imgData.data[i+1] = Math.max(0, Math.min(255, imgData.data[i+1]*gain));
+        imgData.data[i+2] = Math.max(0, Math.min(255, imgData.data[i+2]*gain));
+      }
+      octx.putImageData(imgData,0,0);
+    }
     return off.transferToImageBitmap();
   }
 
@@ -92,6 +119,23 @@
     currentImage = await prepareImageBitmap(bmp);
   });
 
+  // 露出UI
+  const brightness = document.getElementById('brightness');
+  const contrast = document.getElementById('contrast');
+  const saturation = document.getElementById('saturation');
+  const antiGap = document.getElementById('antiGap');
+  document.getElementById('autoExpose').addEventListener('change', ()=>{
+    if (currentImage) { /* 次の読み込み時に適用。手元の画像には反映しない */ }
+  });
+  antiGap.addEventListener('change', ()=>{
+    if (antiGap.checked){
+      sliceOverlapRatio = 0.02; SEGS = Math.round(SEGS*1.1); overlap = 0.08; bleed = 8;
+    }else{
+      sliceOverlapRatio = 0.01; SEGS = Math.max(60, Math.round(SEGS/1.1)); overlap = 0.06; bleed = 6;
+    }
+  });
+
+  // オーディオ周り
   let audList = [], audIdx = 0;
   let audio = new Audio();
   let actx, analyser, data;
@@ -168,8 +212,7 @@
   }
   window.addEventListener('resize',fit,{passive:true}); 
   fit();
-
-  // ▼ ズーム補正：DPRの変化を監視してfit()再実行
+  // DPR監視（ズーム補正）
   let lastDPR = window.devicePixelRatio;
   setInterval(() => {
     const now = window.devicePixelRatio;
@@ -199,10 +242,10 @@
 
       for(let i=0;i<SEGS;i++){
         ctx.save();
-        ctx.rotate(i*slice - slice*0.01);
+        ctx.rotate(i*slice - slice*sliceOverlapRatio);
         ctx.beginPath();
         ctx.moveTo(0,0);
-        const dy=wedgeR*Math.tan(slice/2 * 1.02);
+        const dy=wedgeR*Math.tan(slice/2 * (1+sliceOverlapRatio));
         ctx.lineTo(wedgeR,-dy);
         ctx.lineTo(wedgeR,dy);
         ctx.closePath();
@@ -227,9 +270,12 @@
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(localAngle);
+            // 色調補正（明るさ・コントラスト・彩度）をCanvasフィルタで適用
+            ctx.filter = `brightness(${brightness.value}) contrast(${contrast.value}) saturate(${saturation.value})`;
             ctx.drawImage(currentImage, sx, sy, uStep, vStep,
               -wDest/2 - bleed, -hDest/2 - bleed,
               wDest + bleed*2, hDest + bleed*2);
+            ctx.filter = "none";
             ctx.restore();
           }
         }
@@ -253,7 +299,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=25");
+  navigator.serviceWorker.register("./sw.js?v=26");
 }
 </script>
 </body>

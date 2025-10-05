@@ -1,7 +1,7 @@
 {
   "name": "Square Radiant Player",
   "short_name": "RadiantPlayer",
-  "start_url": "./index.html?v=25",
+  "start_url": "./index.html?v=26",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000",
