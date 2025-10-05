@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>万華鏡（N×N 内部分割＋放射／正方形フルカバー）</title>
+<title>万華鏡 Final（N×N 分割 → 円形放射／枠は四角）</title>
 
-<link rel="manifest" href="./manifest.json?v=10">
+<link rel="manifest" href="./manifest.json?v=12">
 <meta name="theme-color" content="#111318">
 <link rel="icon" href="./icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -43,7 +43,7 @@
 
     <button id="testImgBtn" class="btn">🧪 テスト画像</button>
     <button id="clearImg" class="btn">画像クリア</button>
-    <span class="pill">(D&Dでも読み込み可／←→で切替)</span>
+    <span class="pill">(D&D可／←→で切替)</span>
 
     <!-- 分割と放射 -->
     <div class="group">
@@ -83,7 +83,7 @@
 (function(){
   const isLocalhost = ['localhost','127.0.0.1'].includes(location.hostname);
   if ('serviceWorker' in navigator && (isLocalhost || location.protocol==='https:')) {
-    navigator.serviceWorker.register('./sw.js?v=11').catch(e=>{
+    navigator.serviceWorker.register('./sw.js?v=12').catch(e=>{
       console.warn('SW register failed:', e);
       const s=document.getElementById('status'); if(s) s.textContent='SW登録失敗: '+e;
     });
@@ -173,43 +173,65 @@ function rebuildPattern(){
   }
 }
 
-/* ===== 放射描画（正方形フルカバー） ===== */
+/* ===== 放射描画（枠＝四角／内部＝円形で回転） ===== */
 function drawRadialFromPattern(){
-  const w=cv.width,h=cv.height;
+  const w = cv.width, h = cv.height;
   ctx.clearRect(0,0,w,h);
-  ctx.fillStyle='#000'; ctx.fillRect(0,0,w,h);
+
+  // 四角い背景（枠は四角のまま）
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0,0,w,h);
+
   if (!patternCanvas) return;
 
-  const cx=w/2, cy=h/2, slice=(Math.PI*2)/segments;
-  const R = Math.hypot(w,h) * 10; // 対角の10倍＝四隅まで確実に塗る
+  const cx = w/2, cy = h/2;
+  const slice = (Math.PI * 2) / segments;
 
-  for(let i=0;i<segments;i++){
+  // 内部は「正方形に内接する円」だけに描く
+  const R = Math.min(w, h) * 0.5;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // 円クリップ：外側は絶対に描かれない
+  ctx.beginPath();
+  ctx.arc(0, 0, R, 0, Math.PI*2);
+  ctx.clip();
+
+  const wedgeR = R * 1.05;  // 円の内側に十分な長さ
+
+  for (let i = 0; i < segments; i++) {
     ctx.save();
-    ctx.translate(cx,cy); ctx.rotate(i*slice + angle);
+    ctx.rotate(i * slice + angle);
 
-    // 大きめの四角扇クリップ（実質無限）
+    // 扇（三角扇形）でさらにクリップ → 円∩扇
     ctx.beginPath();
-    ctx.moveTo(-R,-R);
-    ctx.lineTo(R, -R*Math.tan(slice/2));
-    ctx.lineTo(R,  R*Math.tan(slice/2));
-    ctx.lineTo(-R, R);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(wedgeR, -wedgeR * Math.tan(slice/2));
+    ctx.lineTo(wedgeR,  wedgeR * Math.tan(slice/2));
     ctx.closePath();
     ctx.clip();
 
-    const flip=(i%2===1)?-1:1;
-    ctx.scale(flip,1);
+    // 偶数番をミラー
+    const flip = (i % 2 === 1) ? -1 : 1;
+    ctx.scale(flip, 1);
+
+    // ソースは N×N に分割した patternCanvas
     ctx.drawImage(patternCanvas, -w/2, -h/2, w, h);
+
     ctx.restore();
   }
 
-  const speed=0.0025*(24/Math.max(12,segments));
+  ctx.restore();
+
+  // 回転
+  const speed = 0.0025 * (24 / Math.max(12, segments));
   angle += speed;
 }
 
 /* ===== クリック時の可視フィードバック（パルス）＋任意チャイム ===== */
 let pulseT = 0;
 cv.addEventListener('click', async ()=>{
-  // チャイムはキャンバス限定＆トグルONのときだけ
   if (document.getElementById('chimeOnCanvas').checked){
     try{ await ensureAudioCtx(); chimeAudio.currentTime=0; await chimeAudio.play().catch(()=>playBeep()); }catch{}
   }
@@ -264,8 +286,7 @@ const JA = new Intl.Collator('ja', { numeric:true, sensitivity:'base' });
 
 dirPicker.addEventListener('change', e=>{
   fileList = Array.from(e.target.files).filter(f=>/^image\//.test(f.type));
-  // 数字→50音で自然ソート
-  fileList.sort((a,b)=>JA.compare(a.name,b.name));
+  fileList.sort((a,b)=>JA.compare(a.name,b.name)); // 数字昇順→50音順
   fileIdx = -1;
   nextImage();
 });
