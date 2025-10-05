@@ -1,14 +1,14 @@
-// sw.js v12.1 — 確実更新・自動切替
-const SW_VERSION = "v12.1";
-const CACHE = "kaleido-" + SW_VERSION;
+// sw.js v13 — 確実更新・自動切替（KBスコープ）
+const SW_VERSION = "v13";
+const CACHE = "kb-" + SW_VERSION;
 
 const ASSETS = [
   "./",
-  "./index.html?v=12.1",
-  "./manifest.json?v=12.1",
+  "./index.html?v=13",
+  "./manifest.json?v=13",
   "./icon-192.png",
   "./icon-512.png",
-  "./Chime.m4a?v=12.1"
+  "./Chime.mp3?v=1"
 ];
 
 self.addEventListener("install", e => {
@@ -18,9 +18,7 @@ self.addEventListener("install", e => {
 
 self.addEventListener("activate", e => {
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    )
+    caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
   );
   self.clients.claim();
   self.clients.matchAll({type:"window"}).then(clients => {
@@ -38,9 +36,9 @@ self.addEventListener("fetch", e => {
     e.respondWith(
       fetch(req).then(r => {
         const copy = r.clone();
-        caches.open(CACHE).then(c => c.put("./index.html?v=12.1", copy));
+        caches.open(CACHE).then(c => c.put("./index.html?v=13", copy));
         return r;
-      }).catch(() => caches.match("./index.html?v=12.1"))
+      }).catch(() => caches.match("./index.html?v=13"))
     );
     return;
   }

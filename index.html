@@ -1,75 +1,70 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Square Kaleidoscope — v12.2</title>
+<title>KaleidoBaby — v13</title>
 
-<!-- 既存の manifest/sw は v12.1 のままでOK。index だけ更新します -->
-<link rel="manifest" href="./manifest.json?v=12.1">
-<meta name="theme-color" content="#000000">
+<link rel="manifest" href="./manifest.json?v=13">
+<meta name="theme-color" content="#000">
 <link rel="icon" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
 
 <style>
-  html,body{margin:0;height:100%;background:#000;overflow:hidden}
-  #c{width:100vw;height:100vh;display:block;touch-action:manipulation}
-  #ui{
-    position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
-    display:flex;gap:10px;align-items:center;color:#fff;font-family:sans-serif;
-    font-size:14px;flex-wrap:wrap;justify-content:center;z-index:3
-  }
-  input[type=file]{appearance:auto;background:#111;color:#fff;border:1px solid #444;border-radius:8px;padding:8px 12px}
-  button{background:#111;border:1px solid #444;border-radius:8px;padding:8px 14px;cursor:pointer;color:#fff}
-  #status{position:fixed;top:10px;left:50%;transform:translateX(-50%);color:#9cf;font-family:monospace;font-size:12px;opacity:.95;z-index:3;text-align:center;white-space:pre-wrap;max-width:96vw}
-  #install{position:fixed;top:10px;right:10px}
-  #dropHint{position:fixed;inset:auto auto 64px 50%;transform:translateX(-50%);color:#bbb;font:12px/1.4 sans-serif;z-index:3;opacity:.9}
+  :root{--bg:#000;--ui:#111;--bd:#444;--txt:#fff;--sub:#9cf}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);font-family:system-ui, ui-sans-serif, sans-serif;overflow:hidden}
+  #c{display:block;width:100vw;height:100vh;background:#000;touch-action:manipulation}
+  #status{position:fixed;left:10px;bottom:10px;font:12px/1.4 ui-monospace,monospace;opacity:.95;white-space:pre-wrap;max-width:48vw;z-index:5}
+  #ui{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;z-index:5}
+  button,input[type=file]{background:var(--ui);color:var(--txt);border:1px solid var(--bd);border-radius:10px;padding:8px 12px;cursor:pointer}
   label{display:flex;gap:6px;align-items:center}
+  #plist{position:fixed;right:10px;bottom:86px;max-height:46vh;overflow:auto;background:#111a;border:1px solid #333;border-radius:10px;padding:8px 10px;min-width:260px;font:12px/1.5 sans-serif}
+  #plist b{display:block;margin:.2em 0 .4em;color:var(--sub)}
+  #plist li{list-style:none;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+  #plist li.playing{color:#0f0}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="status">booting… (v12.2)</div>
+<div id="status">booting… (v13)</div>
 
 <div id="ui">
-  <input type="file" id="img" accept="image/*" title="画像ファイルを選択">
-  <button id="reset">画像クリア</button>
+  <input id="img" type="file" accept="image/*" title="画像を選択">
   <button id="testImg">📷 内蔵テスト画像</button>
+  <button id="resetImg">画像クリア</button>
 
-  <button id="enable">🔊 センサーと音を有効化</button>
-
-  <input type="file" id="music" accept="audio/*" webkitdirectory multiple title="音楽フォルダ／複数ファイル">
-  <button id="play">▶︎/⏸</button>
+  <button id="enable">🔊 音を有効化</button>
+  <!-- ✅ フォルダ選択（PC Chromeで有効） -->
+  <input id="music" type="file" accept="audio/*" webkitdirectory multiple title="音楽フォルダを選択">
+  <button id="prev">⏮</button>
+  <button id="play">▶/⏸</button>
+  <button id="next">⏭</button>
+  <button id="testAud">🔈 内蔵テスト音</button>
 
   <label>セグメント <input id="seg" type="range" min="8" max="96" step="2" value="32"></label>
+  <label>細かさ <input id="detail" type="range" min="1" max="24" step="1" value="8"></label>
+  <label>ズーム <input id="zoom" type="range" min="0.5" max="3.0" step="0.01" value="1.0"></label>
+  <label>流れ <input id="flow" type="range" min="0" max="1.5" step="0.01" value="0.6"></label>
 
-  <button id="install" hidden>+ インストール</button>
+  <button id="hard">♻ Hard Reset</button>
 </div>
-<div id="dropHint">🖼 画像はドラッグ＆ドロップでも読み込めます（PNG/JPG/WEBPを推奨）</div>
+<ul id="plist" hidden><b>Playlist</b></ul>
 
-<audio id="chime" src="./Chime.m4a?v=12.1" preload="auto" playsinline></audio>
-<audio id="player" preload="none" playsinline></audio>
+<!-- 内蔵音源（KBリポ直下に Chime.mp3 を置いてください） -->
+<audio id="ch" preload="auto" playsinline></audio>
+<audio id="pl" preload="none" playsinline></audio>
 
 <script>
-/* ===== 基本 ===== */
-const canvas=document.getElementById('c'),ctx2d=canvas.getContext('2d'),statusEl=document.getElementById('status');
-const dpr=Math.min(devicePixelRatio||1,2);
-function log(t){ statusEl.textContent=t; try{ console.log('[Kaleido]', t);}catch(e){} }
-function fit(){canvas.width=Math.floor(innerWidth*dpr);canvas.height=Math.floor(innerHeight*dpr);if(gl){gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(prog.uRes,canvas.width,canvas.height);}}
-addEventListener('resize',fit);fit();
-function checker(){const w=canvas.width,h=canvas.height,s=32;for(let y=0;y<h;y+=s)for(let x=0;x<w;x+=s){ctx2d.fillStyle=((x+y)/s)%2?'#222':'#444';ctx2d.fillRect(x,y,s,s);}}
-checker();log('booting… v12.2');
+const APP_V = 'v13';
 
-/* ===== SW登録（そのまま） ===== */
-const _nosw = new URL(location.href).searchParams.get('nosw') === '1';
-if ('serviceWorker' in navigator && !_nosw) {
-  navigator.serviceWorker.register('./sw.js?v=12.1').then(reg=>{
+/* ---------- SW登録（?nosw=1で無効化可能） ---------- */
+const noSW = new URL(location.href).searchParams.get('nosw')==='1';
+if ('serviceWorker' in navigator && !noSW) {
+  navigator.serviceWorker.register('./sw.js?v=13').then(reg=>{
     if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
     reg.addEventListener('updatefound', ()=>{
       const sw=reg.installing; if(!sw) return;
-      sw.addEventListener('statechange', ()=>{
-        if (sw.state==='installed' && reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
-      });
+      sw.addEventListener('statechange', ()=>{ if(sw.state==='installed' && reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'}); });
     });
   });
   navigator.serviceWorker.addEventListener('message', e=>{
@@ -77,163 +72,207 @@ if ('serviceWorker' in navigator && !_nosw) {
   });
 }
 
-/* ===== WebGL ===== */
+/* ---------- Hard Reset（SW/Cache全消し） ---------- */
+async function hardReset(){
+  try{
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r=>r.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k=>caches.delete(k)));
+    }
+    localStorage.clear(); sessionStorage.clear();
+  }catch(_){}
+  location.replace('./index.html?v=13&ts='+Date.now());
+}
+document.getElementById('hard').onclick = hardReset;
+
+/* ---------- 基本 ---------- */
+const canvas = document.getElementById('c');
+const statusEl = document.getElementById('status');
+const dpr = Math.min(devicePixelRatio||1, 2);
+function log(s){ statusEl.textContent = s; try{ console.log('[KB v13]', s);}catch(e){} }
+function fit(){ canvas.width=Math.floor(innerWidth*dpr); canvas.height=Math.floor(innerHeight*dpr); if(gl){ gl.viewport(0,0,canvas.width,canvas.height); gl.uniform2f(prog.uRes,canvas.width,canvas.height);} }
+addEventListener('resize', fit); fit();
+
+/* ---------- WebGL + 細密タイル ---------- */
 let gl,prog,tex=null;
 function initGL(){
-  gl=canvas.getContext('webgl',{alpha:false,antialias:true})||canvas.getContext('experimental-webgl');
-  if(!gl) throw new Error('WebGL不可（ブラウザ設定/環境）');
+  gl = canvas.getContext('webgl',{alpha:false,antialias:true}) || canvas.getContext('experimental-webgl');
+  if(!gl) throw new Error('WebGL不可（ChromeのハードウェアアクセラレーションON）');
 
-  const vs=`attribute vec2 aPos;void main(){gl_Position=vec4(aPos,0.,1.);} `;
+  const vs=`attribute vec2 a; void main(){gl_Position=vec4(a,0.,1.);} `;
   const fs=`
     precision mediump float;
-    uniform float uTime,uSectors,uHasTex;uniform sampler2D uTex;uniform vec2 uRes;
-    vec2 mirror(vec2 x){return abs(fract(x)-0.5)*2.0;}
+    uniform float uT,uS,uH,uDetail,uZoom,uFlow; 
+    uniform sampler2D uTex; uniform vec2 uRes;
+    vec2 mirror(vec2 x){return abs(fract(x)-.5)*2.0;}
     mat2 rot(float a){float c=cos(a),s=sin(a);return mat2(c,-s,s,c);}
     void main(){
-      vec2 c=uRes*0.5;float side=min(uRes.x,uRes.y);vec2 p=(gl_FragCoord.xy-c)/side;
-      if(max(abs(p.x),abs(p.y))>0.5){gl_FragColor=vec4(0,0,0,1);return;}
-      float sector=6.28318530718/uSectors;float ang=atan(p.y,p.x);float k=floor(ang/sector);
-      float a=mod(ang,sector);if(mod(k,2.0)>0.5)a=sector-a;
-      float r=length(p);vec2 dir=vec2(cos(a),sin(a));
-      float ph=k*2.618;float spin=0.12*sin(uTime*0.6+ph);vec2 d=rot(spin)*(dir*r);
-      float br=1.0+0.18*sin(uTime*0.8+0.7*ph);vec2 t=d*br+0.5;
-      vec3 col=(uHasTex>0.5)?texture2D(uTex,mirror(t)).rgb:vec3(0.3+0.2*sin(10.0*t.x),0.3+0.2*sin(10.0*t.y),0.4);
+      vec2 c=uRes*.5; float side=min(uRes.x,uRes.y);
+      vec2 p=(gl_FragCoord.xy-c)/side;
+      if(max(abs(p.x),abs(p.y))>.5){gl_FragColor=vec4(0,0,0,1);return;}
+      float sect=6.2831853/uS; float ang=atan(p.y,p.x); float k=floor(ang/sect);
+      float a=mod(ang,sect); if(mod(k,2.)>.5) a=sect-a;
+      float r=length(p); vec2 dir=vec2(cos(a),sin(a));
+      float ph=k*2.618; float spin=0.12*sin(uT*uFlow+ph);
+      vec2 d=rot(spin)*(dir*r);
+      float br=uZoom*(1.0+0.18*sin(uT*.8+0.7*ph));
+      vec2 t=d*br+0.5;
+      vec2 uv = t*max(1.0,uDetail);      // ★ 細密タイル
+      vec2 muv = mirror(uv);
+      vec3 col = (uH>0.5) ? texture2D(uTex,muv).rgb
+                          : vec3(0.22+0.28*sin(10.0*muv.x),0.25+0.25*sin(10.0*muv.y),0.35);
       gl_FragColor=vec4(col,1.0);
     }`;
-  const sh=(tp,src)=>{const s=gl.createShader(tp);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
-  const vsO=sh(gl.VERTEX_SHADER,vs),fsO=sh(gl.FRAGMENT_SHADER,fs);
-  prog=gl.createProgram();gl.attachShader(prog,vsO);gl.attachShader(prog,fsO);gl.linkProgram(prog);
-  if(!gl.getProgramParameter(prog,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(prog));
+  function sh(tp,src){const s=gl.createShader(tp); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s;}
+  const vsO=sh(gl.VERTEX_SHADER,vs), fsO=sh(gl.FRAGMENT_SHADER,fs);
+  prog=gl.createProgram(); gl.attachShader(prog,vsO); gl.attachShader(prog,fsO); gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
+  const quad=new Float32Array([-1,-1,1,-1,-1,1,1,1]);
+  const vbo=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,vbo); gl.bufferData(gl.ARRAY_BUFFER,quad,gl.STATIC_DRAW);
+  const loc=gl.getAttribLocation(prog,'a'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
 
-  const quad=new Float32Array([-1,-1, 1,-1, -1,1, 1,1]);
-  const vbo=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,vbo);gl.bufferData(gl.ARRAY_BUFFER,quad,gl.STATIC_DRAW);
-  const loc=gl.getAttribLocation(prog,'aPos');gl.enableVertexAttribArray(loc);gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-
-  prog.uTime=gl.getUniformLocation(prog,'uTime');
-  prog.uSectors=gl.getUniformLocation(prog,'uSectors');
-  prog.uTex=gl.getUniformLocation(prog,'uTex');
-  prog.uHasTex=gl.getUniformLocation(prog,'uHasTex');
+  // uniforms
+  prog.uT=gl.getUniformLocation(prog,'uT');
+  prog.uS=gl.getUniformLocation(prog,'uS');
+  prog.uH=gl.getUniformLocation(prog,'uH');
   prog.uRes=gl.getUniformLocation(prog,'uRes');
-
-  gl.uniform1f(prog.uSectors,parseFloat(document.getElementById('seg').value));
-  gl.activeTexture(gl.TEXTURE0);          // ✅ 明示
-  gl.uniform1i(prog.uTex,0);
-  gl.uniform1f(prog.uHasTex,0.0);
+  prog.uDetail=gl.getUniformLocation(prog,'uDetail');
+  prog.uZoom=gl.getUniformLocation(prog,'uZoom');
+  prog.uFlow=gl.getUniformLocation(prog,'uFlow');
+  gl.activeTexture(gl.TEXTURE0);
+  prog.uTex=gl.getUniformLocation(prog,'uTex'); gl.uniform1i(prog.uTex,0);
+  gl.uniform1f(prog.uS, parseFloat(document.getElementById('seg').value));
+  gl.uniform1f(prog.uDetail, parseFloat(document.getElementById('detail').value));
+  gl.uniform1f(prog.uZoom, parseFloat(document.getElementById('zoom').value));
+  gl.uniform1f(prog.uFlow, parseFloat(document.getElementById('flow').value));
+  gl.uniform1f(prog.uH, 0.0);
   gl.viewport(0,0,canvas.width,canvas.height);
-  gl.uniform2f(prog.uRes,canvas.width,canvas.height);
+  gl.uniform2f(prog.uRes, canvas.width, canvas.height);
 
-  canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();log('WebGL context lost');});
   log('WebGL OK');
 }
-let startT=performance.now();
-function loop(){const t=(performance.now()-startT)/1000;if(gl){gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.uniform1f(prog.uTime,t);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}else checker();requestAnimationFrame(loop);}requestAnimationFrame(loop);
-try{initGL();}catch(e){log('WebGL失敗: '+e.message);}
+let t0=performance.now();
+function loop(){const t=(performance.now()-t0)/1000; if(gl){gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.uniform1f(prog.uT,t);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);} requestAnimationFrame(loop);}
+try{initGL();}catch(e){log('WebGL失敗: '+e.message);} requestAnimationFrame(loop);
 
-/* ===== 画像ローダー（堅牢化） ===== */
-// ・File.type が "" の場合でも拡張子で許可
-// ・createImageBitmap が使えるときはそちらを優先（デコード安定）
-// ・HEIC/未対応はログで誘導
+/* ---------- 画像ローダー（堅牢） ---------- */
 const IMG_OK = /\.(png|jpg|jpeg|gif|webp)$/i;
 async function loadImageFile(file){
-  if(!file){ log('画像が選択されていません'); return; }
-  const typeOK = (file.type && file.type.startsWith('image/')) || IMG_OK.test(file.name||'');
-  if(!typeOK){ log('未対応画像: '+(file.name||'')+'（PNG/JPG/WEBPで試してください）'); return; }
-
-  const url = URL.createObjectURL(file);
+  if(!file){log('画像未選択');return;}
+  const ok=(file.type && file.type.startsWith('image/')) || IMG_OK.test(file.name||'');
+  if(!ok){log('未対応画像: '+(file.name||'')+'（PNG/JPG/WEBPで）');return;}
   try{
-    if ('createImageBitmap' in window) {
-      const bmp = await createImageBitmap(file);   // ✅ 安定
-      makeTex(bmp);
-      log('画像ロードOK: '+(file.name||''));
-    }else{
-      await new Promise((resolve,reject)=>{
-        const img = new Image();
-        img.onload=()=>{ makeTex(img); resolve(); };
-        img.onerror=()=>reject(new Error('画像読み込み失敗（形式未対応？）'));
-        img.src = url;
-      });
-      log('画像ロードOK: '+(file.name||''));
+    let src;
+    if('createImageBitmap' in window){ src=await createImageBitmap(file); }
+    else{
+      const url=URL.createObjectURL(file);
+      src=await new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=()=>rej(new Error('画像読み込み失敗'));i.src=url;});
+      setTimeout(()=>URL.revokeObjectURL(url),0);
     }
-  }catch(err){
-    log('画像読み込み失敗: '+err.message);
-  }finally{
-    // revoke を即時に行うと一部環境で描画前に解放されることがあるため遅延
-    setTimeout(()=>URL.revokeObjectURL(url), 0);
-  }
-}
-
-/* ===== テクスチャ作成（Image / ImageBitmap どちらでもOK） ===== */
-function makeTex(src){
-  if(!gl) return;
-  if(!tex) tex=gl.createTexture();
-  gl.activeTexture(gl.TEXTURE0);                // ✅ 明示
-  gl.bindTexture(gl.TEXTURE_2D,tex);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
-  try{
+    if(!tex) tex=gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D,tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,src);
-  }catch(e){
-    log('texImage2D 失敗: '+e.message);
-    return;
-  }
-  // NPOT対応（mipmap禁止 / CLAMP）
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-  gl.uniform1f(prog.uHasTex,1.0);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    gl.uniform1f(prog.uH,1.0);
+    log('画像ロードOK: '+(file.name||''));
+  }catch(err){ gl && gl.uniform1f(prog.uH,0.0); log('画像読み込み失敗: '+err.message); }
 }
-
-/* ===== 画像入出力 ===== */
 document.getElementById('img').onchange=e=>loadImageFile(e.target.files[0]);
-
-addEventListener('dragover',e=>e.preventDefault());
-addEventListener('drop',e=>{
-  e.preventDefault();
-  const f=e.dataTransfer.files?.[0];
-  if(!f){ log('ファイルがドロップされていません'); return; }
-  loadImageFile(f);
-});
-
-document.getElementById('reset').onclick=()=>{
-  if(gl){ gl.uniform1f(prog.uHasTex,0.0); }
-  log('画像クリア');
+document.getElementById('resetImg').onclick=()=>{ if(gl) gl.uniform1f(prog.uH,0.0); log('画像クリア'); };
+document.getElementById('testImg').onclick=async()=>{
+  try{
+    const r=await fetch('./icon-512.png',{cache:'no-store'}); if(!r.ok) throw 0;
+    const b=await r.blob(); await loadImageFile(new File([b],'icon-512.png',{type:'image/png'}));
+  }catch{ log('内蔵画像が見つかりません（icon-512.png を /KB/ に置いてください）'); }
 };
 
-// 内蔵テスト画像（必ず表示できるPNG）
-document.getElementById('testImg').onclick=()=>{
-  fetch('./icon-512.png',{cache:'no-store'})
-    .then(r=>r.blob())
-    .then(b=>loadImageFile(new File([b],'icon-512.png',{type:'image/png'})))
-    .catch(()=>log('内蔵画像の読み込み失敗'));
-};
+/* ---------- 音まわり（フォルダ選択＋内蔵音源） ---------- */
+const ch=document.getElementById('ch'), pl=document.getElementById('pl');
+let audioEnabled=false, tracks=[], idx=-1;
+const plist=document.getElementById('plist');
 
-/* ===== オーディオ（最低限：有効化＋再生） ===== */
-const ch=document.getElementById('chime'),pl=document.getElementById('player');let enabled=false;
 document.getElementById('enable').onclick=async()=>{
   try{
-    if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission().catch(()=>{});
-    await ch.play(); ch.pause(); ch.currentTime=0; enabled=true; log('音OK');
-  }catch(e){ log('音失敗: '+e.message); }
+    if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission){ try{ await DeviceMotionEvent.requestPermission(); }catch(_){} }
+    // “有効化”の儀式
+    ch.src='./Chime.mp3?v=1'; ch.load();
+    await ch.play(); ch.pause(); ch.currentTime=0;
+    audioEnabled=true; log('音OK（手動操作許可済み）');
+  }catch(e){ log('音の有効化失敗: '+e.message+'（ブラウザのサウンド許可を確認）'); }
 };
+
+function acceptAudio(f){
+  if (f.type && f.type.startsWith('audio/')) return true;
+  return /\.(mp3|m4a|aac|wav|ogg|flac)$/i.test(f.name||'');
+}
 document.getElementById('music').onchange=e=>{
-  const files=[...e.target.files].filter(f=>{
-    if (f.type && f.type.startsWith('audio/')) return true;
-    return /\.(mp3|m4a|aac|wav|ogg|flac)$/i.test(f.name||'');
-  });
-  if(!files.length){ log('再生可能な音源が見つかりません'); return; }
-  const u=URL.createObjectURL(files[0]); pl.src=u; ch.src=u;
-  pl.onloadedmetadata=()=>log('音源: '+(files[0].name||'audio'));
-};
-document.getElementById('play').onclick=()=>{
-  if(!pl.src) return log('音源を選択してください');
-  pl[pl.paused?'play':'pause']().catch(e=>log('再生失敗: '+e.message+'\nサイト設定で「サウンド」「自動再生」を許可に'));
+  tracks=[...e.target.files].filter(acceptAudio);
+  if(!tracks.length){ log('音源が見つかりません'); plist.hidden=true; return; }
+  plist.hidden=false; plist.innerHTML='<b>Playlist</b>';
+  tracks.forEach((f,i)=>{ const li=document.createElement('li'); li.textContent=f.webkitRelativePath||f.name; li.onclick=()=>start(i); plist.appendChild(li); });
+  start(0);
 };
 
-/* ===== セグメント ===== */
-document.getElementById('seg').oninput=e=>{ if(gl) gl.uniform1f(prog.uSectors,parseFloat(e.target.value)); };
+function setAudioUrl(el, url, type){
+  try{ el.pause(); }catch(_){}
+  el.removeAttribute('src'); while(el.firstChild) el.removeChild(el.firstChild);
+  const s=document.createElement('source'); s.src=url; if(type) s.type=type; el.appendChild(s); el.load();
+}
 
-/* ===== ループ開始 ===== */
+async function playUrl(url,type){
+  setAudioUrl(pl,url,type); setAudioUrl(ch,url,type);
+  try{ await pl.play(); }catch(e){ log('再生失敗: '+e.message); }
+}
+function highlight(){ [...plist.querySelectorAll('li')].forEach((li,i)=>li.classList.toggle('playing', i===idx)); }
+function next(){ if(!tracks.length) return; start((idx+1)%tracks.length); }
+function prev(){ if(!tracks.length) return; start((idx-1+tracks.length)%tracks.length); }
+
+function canPlayByExt(n){
+  const e=(n.split('.').pop()||'').toLowerCase();
+  const t = e==='mp3' ? 'audio/mpeg' : e==='m4a'||e==='aac' ? 'audio/mp4' : e==='wav' ? 'audio/wav' : e==='ogg' ? 'audio/ogg' : '';
+  return !!document.createElement('audio').canPlayType(t||'audio/mpeg');
+}
+function start(i){
+  idx=i; const f=tracks[i]; const u=URL.createObjectURL(f);
+  if(!canPlayByExt(f.name)){ log('対応外: '+f.name+'（mp3/m4a/wav推奨）'); return next(); }
+  playUrl(u); highlight(); pl.onended=()=>next(); pl.onloadedmetadata=()=>log('音源: '+(f.webkitRelativePath||f.name));
+}
+
+document.getElementById('prev').onclick=prev;
+document.getElementById('next').onclick=next;
+document.getElementById('play').onclick=()=>{ if(!pl.src) return log('音源を選択してください'); (pl.paused?pl.play():pl.pause()).catch(e=>log('再生失敗: '+e.message)); };
+
+// 内蔵テスト音（/KB/Chime.mp3 を使用）
+document.getElementById('testAud').onclick=async()=>{
+  try{
+    let url=null,type=null;
+    try{ const r=await fetch('./Chime.mp3?v=1',{cache:'no-store'}); if(r.ok){url='./Chime.mp3?v=1'; type='audio/mpeg';} }catch(_){}
+    if(!url){ log('内蔵音源が見つかりません（/KB/ に Chime.mp3 を置いてください）'); return; }
+    if(!audioEnabled){ try{ ch.src=url; ch.load(); await ch.play(); ch.pause(); ch.currentTime=0; audioEnabled=true; }catch(_){} }
+    await playUrl(url,type); log('内蔵テスト音 再生OK');
+  }catch(e){ log('内蔵テスト音 失敗: '+e.message); }
+};
+
+/* ---------- スライダー連動 ---------- */
+['seg','detail','zoom','flow'].forEach(id=>{
+  document.getElementById(id).oninput = e=>{
+    if(!gl) return;
+    const v=parseFloat(e.target.value);
+    if(id==='seg') gl.uniform1f(prog.uS,v);
+    if(id==='detail') gl.uniform1f(prog.uDetail,v);
+    if(id==='zoom') gl.uniform1f(prog.uZoom,v);
+    if(id==='flow') gl.uniform1f(prog.uFlow,v);
+  };
+});
 </script>
 </body>
 </html>
