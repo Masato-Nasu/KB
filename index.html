@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>万華鏡（1枚画像の内部N×N分割＋放射）</title>
+<title>万華鏡（1枚画像の内部N×N分割＋放射／四角フルカバー）</title>
 
-<link rel="manifest" href="./manifest.json?v=3">
+<link rel="manifest" href="./manifest.json?v=4">
 <meta name="theme-color" content="#111318">
 <link rel="icon" href="./icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -41,12 +41,16 @@
       <input id="gridN" type="range" min="1" max="32" value="12">
       <span id="gridNV">12</span>
     </div>
-
     <div class="group">
       <label>放射セグメント</label>
       <input id="segs" type="range" min="6" max="72" value="24">
       <span id="segsV">24</span>
     </div>
+
+    <!-- 音楽プレーヤー -->
+    <input id="musicFile" type="file" accept="audio/*">
+    <label for="musicFile" class="btn file">🎵 音楽ファイル</label>
+    <button id="musicPlay" class="btn">▶ 再生/一時停止</button>
 
     <button id="enableBtn" class="btn">🔔 クリックでChime／センサー有効化</button>
   </div>
@@ -59,7 +63,7 @@
 (function(){
   const isLocalhost = ['localhost','127.0.0.1'].includes(location.hostname);
   if ('serviceWorker' in navigator && (isLocalhost || location.protocol==='https:')) {
-    navigator.serviceWorker.register('./sw.js?v=8').catch(e=>{
+    navigator.serviceWorker.register('./sw.js?v=9').catch(e=>{
       console.warn('SW register failed:', e);
       const s=document.getElementById('status'); if(s) s.textContent='SW登録失敗: '+e;
     });
@@ -73,19 +77,22 @@ const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 const statusEl = document.getElementById('status');
 
-let baseImg = null;          // ユーザーの元画像
-let patternCanvas = null;    // 内部N×N分割で組んだオフスクリーン
+let baseImg = null;          // ユーザー画像
+let patternCanvas = null;    // N×N 内部分割の合成用
 let patternCtx = null;
 
-let gridN = 12;              // N×N（スライダーで変更）
-let segments = 24;           // 放射セグメント
+let gridN = 12;              // N×N
+let segments = 24;           // 放射
 let angle = 0;
 
+/* ===== Audio ===== */
 let audioCtx = null;
-const chimeAudio = new Audio('https://raw.githubusercontent.com/Masato-Nasu/KB/main/Chime.mp3'); // ←GitHubのChime
+const chimeAudio = new Audio('https://raw.githubusercontent.com/Masato-Nasu/KB/main/Chime.mp3'); // ←指定のChime
 chimeAudio.preload = 'auto';
 
-/* ===== Audio unlock & Sensor (optional) ===== */
+const music = new Audio();
+music.loop = false;
+
 async function ensureAudioCtx(){
   if (!audioCtx) {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -106,17 +113,29 @@ function playBeep(freq=880, dur=0.20){
   o.start(t); o.stop(t+dur+0.02);
 }
 
-async function clickChime(){
+/* クリック → Chime（失敗時はビープ） */
+document.body.addEventListener('click', async ()=>{
   try{
     await ensureAudioCtx();
-    // GitHubの音源を最優先。失敗した場合だけ内蔵ビープ。
     chimeAudio.currentTime = 0;
     await chimeAudio.play().catch(()=>playBeep());
   }catch{ playBeep(); }
-}
+});
 
-document.body.addEventListener('click', clickChime);
+/* 音楽プレーヤー */
+document.getElementById('musicFile').addEventListener('change', e=>{
+  const f = e.target.files[0];
+  if (!f) return;
+  music.src = URL.createObjectURL(f);
+});
+document.getElementById('musicPlay').addEventListener('click', async ()=>{
+  await ensureAudioCtx();
+  try{
+    if (music.paused) await music.play(); else music.pause();
+  }catch(e){ statusEl.textContent = '音楽再生エラー: ' + e; }
+});
 
+/* センサー（任意） */
 document.getElementById('enableBtn').addEventListener('click', async ()=>{
   await ensureAudioCtx();
   if ('DeviceMotionEvent' in window && typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -127,28 +146,26 @@ document.getElementById('enableBtn').addEventListener('click', async ()=>{
     const a = e.accelerationIncludingGravity;
     if (!a) return;
     const mag = Math.hypot(a.x||0,a.y||0,a.z||0);
-    angle += (mag-9.8)*0.0002; // 少しだけ回転に反映
+    angle += (mag-9.8)*0.0002;
   }, {passive:true});
-  statusEl.textContent = 'クリックでChime／揺れで回転に微変化';
+  statusEl.textContent = 'クリックでChime／音楽はボタンで再生／揺れで回転に微変化';
   playBeep(990,0.18);
 });
 
 /* ===== Helpers ===== */
-// 画像を「cover」トリミングで描くためのソース矩形を返す（黒帯を出さない）
+// 黒帯防止の cover トリミング（中央寄せ＋ドリフト・ズーム対応）
 function computeCoverSrcRect(imgW, imgH, destW, destH, driftX=0, driftY=0, zoom=1.0){
   const scale = Math.max(destW/imgW, destH/imgH) * zoom;
   const viewW = destW/scale;
   const viewH = destH/scale;
-
-  // 中央を基準に、ドリフトは画像端を超えないように制限
   const maxX = Math.max(0, (imgW - viewW)/2);
   const maxY = Math.max(0, (imgH - viewH)/2);
   const sx = (imgW - viewW)/2 + Math.max(-maxX, Math.min(maxX, driftX*maxX));
   const sy = (imgH - viewH)/2 + Math.max(-maxY, Math.min(maxY, driftY*maxY));
-  return {sx, sy, sw:viewW, sh:viewH, scale};
+  return {sx, sy, sw:viewW, sh:viewH};
 }
 
-/* ===== Build pattern (N×N 内部分割＋交互ミラー) ===== */
+/* ===== N×N 内部分割（交互ミラー）を作る ===== */
 function rebuildPattern(){
   if (!baseImg) return;
   const w = cv.width, h = cv.height;
@@ -160,16 +177,14 @@ function rebuildPattern(){
   patternCanvas.width = w;
   patternCanvas.height = h;
 
-  // 時間でわずかにドリフト＆ズーム
+  // ドリフト＆ズーム（常に動く）
   const t = performance.now();
-  const driftX = Math.sin(t*0.00023)*0.9; // -0.9〜0.9（後で制限）
+  const driftX = Math.sin(t*0.00023)*0.9;
   const driftY = Math.cos(t*0.00019)*0.9;
   const zoom   = 1.0 + 0.06*Math.sin(t*0.00011);
 
-  // coverトリミング（黒帯防止）
   const src = computeCoverSrcRect(baseImg.width, baseImg.height, w, h, driftX, driftY, zoom);
 
-  // 各タイルのソース矩形 → 交互ミラーで配置
   const tileW = w / gridN;
   const tileH = h / gridN;
   const srcTileW = src.sw / gridN;
@@ -185,45 +200,35 @@ function rebuildPattern(){
 
       patternCtx.save();
       patternCtx.translate(dx + tileW/2, dy + tileH/2);
-
-      // 交互にミラー（チェック模様的）
       const flipX = (gx % 2 === 1) ? -1 : 1;
       const flipY = (gy % 2 === 1) ? -1 : 1;
       patternCtx.scale(flipX, flipY);
-
-      // drawImage は左上原点なので、中心基準に補正
-      patternCtx.drawImage(
-        baseImg,
-        sxi, syi, srcTileW, srcTileH,  // src
-        -tileW/2, -tileH/2, tileW, tileH // dst
-      );
-
+      patternCtx.drawImage(baseImg, sxi, syi, srcTileW, srcTileH, -tileW/2, -tileH/2, tileW, tileH);
       patternCtx.restore();
     }
   }
 }
 
-/* ===== Radial kaleidoscope using the built pattern ===== */
+/* ===== 放射描画（四角フルカバー版）===== */
 function drawRadialFromPattern(){
   const w = cv.width, h = cv.height;
   ctx.clearRect(0,0,w,h);
-
-  // 背景（四角い端まで）
   ctx.fillStyle = '#000';
   ctx.fillRect(0,0,w,h);
 
   if (!patternCanvas) return;
 
   const cx = w/2, cy = h/2;
-  const radius = Math.hypot(w,h)*0.75;
   const slice = (Math.PI*2)/segments;
+
+  // ★ 重要: 半径は「対角より十分大きく」→ 四隅まで完全に埋める
+  const radius = Math.hypot(w, h) * 1.2; // ←ここが円形化の原因だったので拡大
 
   for(let i=0;i<segments;i++){
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(i*slice + angle);
 
-    // 三角扇形クリップ
     ctx.beginPath();
     ctx.moveTo(0,0);
     ctx.lineTo(radius, -radius*Math.tan(slice/2));
@@ -231,30 +236,27 @@ function drawRadialFromPattern(){
     ctx.closePath();
     ctx.clip();
 
-    // 偶数番をミラー
     const flip = (i%2===1) ? -1 : 1;
     ctx.scale(flip, 1);
 
-    // パターン全体を中央に表示（cover相当：ここは正方形なので単純に合わせる）
+    // パターン全体を中央描画（四角の端まで届く）
     ctx.drawImage(patternCanvas, -w/2, -h/2, w, h);
 
     ctx.restore();
   }
 
-  // セグメント数が多いと少し遅く
   const speed = 0.0025 * (24/Math.max(12, segments));
   angle += speed;
 }
 
-/* ===== Animation loop ===== */
+/* ===== ループ ===== */
 function tick(){
-  // 画像があれば毎フレームパターンを更新（ドリフト＆ズーム）
   if (baseImg) rebuildPattern();
   drawRadialFromPattern();
   requestAnimationFrame(tick);
 }
 
-/* ===== Image loading ===== */
+/* ===== 画像読み込み ===== */
 function loadImageFromFile(file){
   if(!file) return;
   const url = URL.createObjectURL(file);
@@ -262,7 +264,6 @@ function loadImageFromFile(file){
   im.onload = ()=>{ baseImg = im; URL.revokeObjectURL(url); };
   im.src = url;
 }
-
 document.getElementById('imgFile').addEventListener('change', e=>loadImageFromFile(e.target.files[0]));
 ['dragenter','dragover'].forEach(t=>cv.addEventListener(t, e=>e.preventDefault()));
 cv.addEventListener('drop', e=>{
@@ -272,7 +273,7 @@ cv.addEventListener('drop', e=>{
 });
 document.getElementById('clearImg').addEventListener('click', ()=>{ baseImg = null; patternCanvas = null; });
 
-/* ===== Built-in test image ===== */
+/* ===== 内蔵テスト画像 ===== */
 function loadBuiltInTestImage(){
   const svg = `
   <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
@@ -296,13 +297,13 @@ function loadBuiltInTestImage(){
 }
 document.getElementById('testImgBtn').addEventListener('click', loadBuiltInTestImage);
 
-/* ===== Controls ===== */
+/* ===== UI ===== */
 const segs = document.getElementById('segs'), segsV=document.getElementById('segsV');
 const gridNInput = document.getElementById('gridN'), gridNV=document.getElementById('gridNV');
 segs.addEventListener('input', ()=>{ segments=+segs.value; segsV.textContent=segments; });
 gridNInput.addEventListener('input', ()=>{ gridN=+gridNInput.value; gridNV.textContent=gridN; });
 
-/* ===== Square canvas fitting ===== */
+/* ===== キャンバスを正方形でフィット ===== */
 function fitCanvas(){
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
   const size = Math.min(window.innerWidth, window.innerHeight-80);
@@ -314,7 +315,7 @@ function fitCanvas(){
 addEventListener('resize', fitCanvas); fitCanvas();
 
 /* ===== Boot ===== */
-loadBuiltInTestImage();  // 起動時に必ず見えるように
+loadBuiltInTestImage();   // 起動時から見える
 requestAnimationFrame(tick);
 </script>
 </body>
