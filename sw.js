@@ -1,12 +1,12 @@
-// sw.js v3
-const CACHE = "kaleido-v3";
+// sw.js v4
+const CACHE = "kaleido-v4";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.json",
   "./icon-192.png",
   "./icon-512.png",
-  "./chime.m4a?v=3"
+  "./Chime.m4a?v=4" // 大文字Cに統一
 ];
 
 self.addEventListener("install", (e) => {
