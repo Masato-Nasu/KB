@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v9</title>
-<link rel="manifest" href="./manifest.json?v=23">
+<title>Square Radiant Player v10</title>
+<link rel="manifest" href="./manifest.json?v=24">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -44,7 +44,7 @@
     <button id="play" class="btn">▶ / ❚❚</button>
     <button id="next" class="btn">次 →</button>
   </div>
-  <div class="muted">v23: タイルを<strong>3倍拡大</strong>して描画（下地フィルなし）／重なり控えめで黒除去＆軽量化</div>
+  <div class="muted">v24: 円の外に“黒スペース”を残す（OUT_DIAM_RATIO=0.85）。画像拡大率は 1.8 倍。</div>
 </div>
 
 <script>
@@ -55,18 +55,19 @@
   const stage = document.getElementById('stage');
 
   // パラメータ
-  let SEGS = 56, N = 16;       // overdraw増えるので控えめ
-  const scaleFactor = 3.0;     // ★各タイルの拡大率
+  let SEGS = 60, N = 18;
+  const scaleFactor = 1.8;     // ★各タイルの拡大率（あなたの指定）
   const bleed = 6;             // ブリード
-  const overlap = 0.06;        // 重なり率（控えめでOK）
+  const overlap = 0.06;        // 重なり
   const dprCap = 1.2;
   const scaleCrop = 1.05;
-  const FILL_OVERSCAN = 1.3;
-  const OUT_DIAM_RATIO = 0.9;
+  const FILL_OVERSCAN = 1.35;  // 内部描画は外側までしっかり
+  const OUT_DIAM_RATIO = 0.85; // ★黒スペースを残すための表示円サイズ（対角比）
 
   const cores = navigator.hardwareConcurrency || 4;
   const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-  if (!isMobile && cores >= 8) { SEGS = 64; N = 18; }
+  if (!isMobile && cores >= 8) { SEGS = 68; N = 20; }
+  if (isMobile) { SEGS = 52; N = 16; }
 
   // 画像を中央正方形トリミング & 1.05x拡大
   async function prepareImageBitmap(img){
@@ -212,7 +213,6 @@
             const px = -half + x*step + step/2;
             const py = -half + y*step + step/2;
 
-            // ★ 3倍拡大して描画（隙間を根本的に潰す）
             const wDest = step * scaleFactor * (1 + overlap);
             const hDest = step * scaleFactor * (1 + overlap);
 
@@ -229,7 +229,7 @@
       }
       ctx.restore();
 
-      // 円形クリッピング（表示）
+      // 円形クリッピング（外側に黒スペースを残す）
       const outRadius = (Math.hypot(w,h) * OUT_DIAM_RATIO)/2;
       ctx.save();
       ctx.globalCompositeOperation="destination-in";
@@ -254,7 +254,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=23");
+  navigator.serviceWorker.register("./sw.js?v=24");
 }
 </script>
 </body>
