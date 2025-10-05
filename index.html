@@ -3,20 +3,20 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Baby Shapes Neon — ひかる せんが 〇△□☆♡ (v1.2)</title>
-<link rel="manifest" href="./manifest.json?v=1.2">
+<title>Baby Shapes Neon — ひかる せんが 〇△□☆♡ (v1.2.2)</title>
+<link rel="manifest" href="./manifest.json?v=1.2.2">
 <meta name="theme-color" content="#1a1a1a">
 <style>
-  :root{ --bg:#1a1a1a; --panel:#20232bcc; --text:#E8EAF2; --muted:#8b90a1; }
+  :root{ --bg:#1a1a1a; --panel:#20232bcc; --text:#E8EAF2; --muted:#8b90a1; --boxw:1100px; --pad:16px;}
   html,body{ height:100%; margin:0; background:var(--bg);
     color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; }
-  .wrap{display:flex;flex-direction:column;align-items:center;gap:12px;min-height:100%}
-  .stage{position:relative;display:grid;place-items:center;width:100%;max-width:1100px;aspect-ratio:1;
-    background:var(--bg);border-radius:24px;overflow:hidden;box-shadow:0 12px 36px rgba(0,0,0,.35)}
+  .wrap{display:flex;flex-direction:column;align-items:center;gap:12px;min-height:100%; padding:12px}
+  .box{ width: min(var(--boxw), calc(100% - 2*var(--pad))); margin:0 auto; border-radius:24px; overflow:hidden;
+        box-shadow:0 12px 36px rgba(0,0,0,.35); }
+  .stage{ position:relative; display:grid; place-items:center; aspect-ratio:1; background:var(--bg); }
   canvas{width:100%;height:100%;display:block;touch-action:none;background:var(--bg)}
   .controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center;
-    padding:12px;background:var(--panel);backdrop-filter:saturate(1.05) blur(6px);
-    border-radius:16px;margin:8px;max-width:1100px}
+    padding:12px; background:var(--panel); backdrop-filter:saturate(1.05) blur(6px);}
   .btn{appearance:none;border:0;border-radius:14px;background:#2f6feb;color:#fff;
     padding:12px 16px;font-size:16px;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
   .btn:active{transform:translateY(1px)}
@@ -28,17 +28,19 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="stage" id="stage"><canvas id="cv"></canvas></div>
-  <div class="controls">
-    <label class="btn">🎵 おんがくフォルダ（連続再生）<input id="audDir" type="file" webkitdirectory directory multiple accept="audio/*" hidden></label>
-    <button id="prev" class="btn">← まえ</button>
-    <button id="play" class="btn">▶ / ❚❚</button>
-    <button id="next" class="btn">つぎ →</button>
-    <div class="range">かず <input id="count" type="range" min="3" max="50" step="1" value="22"></div>
-    <div class="range">せんの太さ <input id="thick" type="range" min="2" max="14" step="1" value="6"></div>
-    <div class="range">ひかり <input id="glow" type="range" min="8" max="60" step="1" value="28"></div>
+  <div class="box"><div class="stage" id="stage"><canvas id="cv"></canvas></div></div>
+  <div class="box">
+    <div class="controls">
+      <label class="btn">🎵 おんがくフォルダ<input id="audDir" type="file" webkitdirectory directory multiple accept="audio/*" hidden></label>
+      <button id="prev" class="btn">← まえ</button>
+      <button id="play" class="btn">▶ / ❚❚</button>
+      <button id="next" class="btn">つぎ →</button>
+      <div class="range">かず <input id="count" type="range" min="3" max="50" step="1" value="22"></div>
+      <div class="range">せんの太さ <input id="thick" type="range" min="2" max="14" step="1" value="6"></div>
+      <div class="range">ひかり <input id="glow" type="range" min="8" max="60" step="1" value="28"></div>
+    </div>
   </div>
-  <div class="muted">Baby Shapes Neon v1.2: 最低3つのモチーフ。背景ダークグレー。さわると全部が“はじき飛ぶ”。連続再生／PWA。</div>
+  <div class="muted">Baby Shapes Neon v1.2.2: 表示/再生を安定化。背景ダークグレー。最低3つ。タップで全体がはじける／PWA。</div>
 </div>
 
 <script>
@@ -50,13 +52,13 @@
   const thickUI = document.getElementById('thick');
   const glowUI  = document.getElementById('glow');
 
-  // ===== neon palette =====
-  const COLORS = ["#39FF14","#00FFFF","#FF4D6D","#FFD166","#9D4DFF"]; // green, cyan, pink, yellow, purple
+  // palette
+  const COLORS = ["#39FF14","#00FFFF","#FF4D6D","#FFD166","#9D4DFF"];
   const BG = "#1a1a1a";
 
   // ===== Audio (continuous) =====
   let audList=[], audIdx=0, audio=new Audio(); audio.preload="auto";
-  let actx, analyser, data, playing=false;
+  let actx, analyser, data, playing=false, audioReady=false;
   function ensureAudio(){
     if(actx) return;
     actx = new (window.AudioContext||window.webkitAudioContext)();
@@ -65,6 +67,14 @@
     data = new Uint8Array(analyser.frequencyBinCount);
     src.connect(analyser); analyser.connect(actx.destination);
   }
+  // 初回ユーザー操作で確実に有効化
+  ['click','touchstart','pointerdown'].forEach(ev=>{
+    window.addEventListener(ev, async ()=>{
+      ensureAudio();
+      try{ if(actx.state!=="running") await actx.resume(); audioReady=true; }catch(_){}
+    }, {once:true, passive:true});
+  });
+
   function naturalSort(a,b){ return a.name.localeCompare(b.name,'ja',{numeric:true}); }
   document.getElementById('audDir').addEventListener('change', e=>{
     ensureAudio();
@@ -74,20 +84,20 @@
   async function playIndex(i){
     if(!audList.length) return;
     audio.src = URL.createObjectURL(audList[i]);
-    try{ if(actx.state!=="running") await actx.resume(); await audio.play(); playing=true; }catch(e){}
+    try{ if(actx.state!=="running") await actx.resume(); await audio.play(); playing=true; }catch(e){ console.log(e); }
   }
   document.getElementById('next').addEventListener('click',()=>{ if(!audList.length)return; audIdx=(audIdx+1)%audList.length; playIndex(audIdx); });
   document.getElementById('prev').addEventListener('click',()=>{ if(!audList.length)return; audIdx=(audIdx-1+audList.length)%audList.length; playIndex(audIdx); });
   document.getElementById('play').addEventListener('click', async ()=>{
     ensureAudio(); if(actx.state!=="running") await actx.resume();
-    if(audio.paused){ await audio.play(); playing=true; } else { audio.pause(); playing=false; }
+    if(audio.paused){ try{ await audio.play(); playing=true; }catch(_){} } else { audio.pause(); playing=false; }
   });
   audio.addEventListener('ended', ()=>{
     if(audList.length){ audIdx=(audIdx+1)%audList.length; playIndex(audIdx); }
     else { audio.currentTime=0; audio.play(); }
   });
 
-  // ===== Canvas sizing =====
+  // ===== Canvas sizing
   const dprCap=1.25;
   function fit(){
     const s=Math.min(stage.clientWidth, stage.clientHeight);
@@ -124,7 +134,7 @@
   function resetShapes(){
     shapes.length=0;
     const raw = parseInt(countUI.value,10);
-    const n = Math.max(3, raw|0); // 最低3つ
+    const n = Math.max(3, raw|0);
     for(let i=0;i<n;i++){
       const type=TYPES[i%TYPES.length];
       const r = 70*(0.6 + Math.random()*0.6);
@@ -148,7 +158,6 @@
   }
   stage.addEventListener('pointerdown', (e)=>{
     const p=toLocal(e);
-    // 全部を外向きに弾く
     for(const s of shapes){
       const ang=Math.atan2(s.y-p.y, s.x-p.x);
       const force = 3.2 + Math.random()*1.8;
@@ -157,11 +166,9 @@
       s.pulse = Math.min(1, s.pulse + 0.9);
     }
     try{ chime.currentTime=0; chime.play(); }catch(_){}
-    // 小さな光の輪
     sparks.push({x:p.x,y:p.y,t:0,color:"#ffffff"});
   });
 
-  // motion (shake → scatter too)
   if (window.DeviceMotionEvent){
     let last=0;
     window.addEventListener('devicemotion', (e)=>{
@@ -183,7 +190,7 @@
     }, {passive:true});
   }
 
-  // spark rendering
+  // sparks
   const sparks=[];
 
   // ===== draw
@@ -192,9 +199,8 @@
     const w=cv.width,h=cv.height;
     ctx.fillStyle=BG; ctx.fillRect(0,0,w,h);
 
-    // audio energy
     let low=0, mid=0, hi=0;
-    if(analyser && playing){
+    if(analyser){
       analyser.getByteFrequencyData(data);
       const n=data.length;
       for(let i=0;i<n;i++){
@@ -209,15 +215,12 @@
 
     for(const s of shapes){
       s.x+=s.vx; s.y+=s.vy; s.rot+=0.008*(0.6+mid);
-      // 画面内で跳ね返る
       if(s.x<s.r){ s.x=s.r; s.vx=Math.abs(s.vx); }
       if(s.x>w-s.r){ s.x=w-s.r; s.vx=-Math.abs(s.vx); }
       if(s.y<s.r){ s.y=s.r; s.vy=Math.abs(s.vy); }
       if(s.y>h-s.r){ s.y=h-s.r; s.vy=-Math.abs(s.vy); }
-      // 摩擦
       s.vx*=0.992; s.vy*=0.992;
 
-      // 呼吸 + パルス + 高域きらめき
       const scale = 1 + 0.07*Math.sin(t*0.03 + s.x*0.003) + s.pulse*0.25 + hi*0.1;
       const r = s.r * scale;
       s.pulse *= 0.92;
@@ -244,7 +247,6 @@
       ctx.restore();
     }
 
-    // sparks
     for(let i=sparks.length-1;i>=0;i--){
       const sp=sparks[i]; sp.t+=0.03;
       const rr=20 + sp.t*140; const a=Math.max(0, 0.35 - sp.t*0.25);
@@ -275,33 +277,11 @@
     }
   }
 
-  // cache paths
-  function starPath(r, spikes=5){
-    const p=new Path2D(); const step=Math.PI/spikes;
-    p.moveTo(r,0);
-    for(let i=0;i<spikes*2;i++){
-      const rr = (i%2===0)? r : r*0.45;
-      const a = i*step;
-      p.lineTo(Math.cos(a)*rr, Math.sin(a)*rr);
-    }
-    p.closePath(); return p;
-  }
-  function heartPath(r){
-    const p=new Path2D();
-    p.moveTo(0,-r*0.2);
-    p.bezierCurveTo(r*0.9,-r*0.9, r*1.4,r*0.5, 0,r*1.2);
-    p.bezierCurveTo(-r*1.4,r*0.5, -r*0.9,-r*0.9, 0,-r*0.2);
-    return p;
-  }
-  const starCache = new Map(); const heartCache = new Map();
-  function getStar(r){ const k=r|0; if(!starCache.has(k)) starCache.set(k, starPath(k)); return starCache.get(k); }
-  function getHeart(r){ const k=r|0; if(!heartCache.has(k)) heartCache.set(k, heartPath(k)); return heartCache.get(k); }
-
   requestAnimationFrame(draw);
 })();
 </script>
 <script>
-if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js?v=1.2"); }
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js?v=1.2.2"); }
 </script>
 </body>
 </html>
