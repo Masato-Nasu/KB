@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Square Kaleidoscope — PWA + Chime (safe input)</title>
+<title>Square Kaleidoscope — PWA + Chime (safe)</title>
 
 <link rel="manifest" href="./manifest.json?v=3">
 <meta name="theme-color" content="#0f0f12">
@@ -15,7 +15,7 @@
   #c{width:100vw;height:100vh;display:block;touch-action:manipulation}
   #ui{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
       display:flex;gap:10px;align-items:center;color:#fff;font-family:sans-serif;font-size:14px;flex-wrap:wrap;justify-content:center;z-index:3}
-  /* 入力欄は“非表示にしない”＝確実に押せる */
+  /* ← 非表示にしない：必ず押せる */
   input[type=file]{appearance:auto;background:#111;color:#fff;border:1px solid #444;border-radius:8px;padding:8px 12px}
   button{background:#111;border:1px solid #444;border-radius:8px;padding:8px 14px;cursor:pointer;color:#fff}
   #status{position:fixed;top:10px;left:50%;transform:translateX(-50%);color:#9cf;font-family:monospace;font-size:12px;opacity:.95;z-index:3;text-align:center;white-space:pre-wrap}
@@ -35,11 +35,14 @@
 </div>
 <div id="dropHint">🖼 画像はドラッグ＆ドロップでも読み込めます</div>
 
+<!-- チャイムは element 再生（WebAudioのdecodeを回避） -->
+<audio id="chime" src="./chime.m4a?v=3" preload="auto" playsinline></audio>
+
 <script>
 /* ===== Service Worker ===== */
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js?v=3').catch(e=>{
-    const s=document.getElementById('status'); s.textContent = 'SW登録失敗: '+e.message+'\n(https/localhostでのみ有効)';
+    document.getElementById('status').textContent = 'SW登録失敗: '+e.message+'\n(https/localhostでのみ有効)';
   });
 }
 
@@ -53,7 +56,7 @@ installBtn.onclick = async () => {
   installBtn.hidden=true; if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; }
 };
 
-/* ===== Canvas & 2D fallback ===== */
+/* ===== Canvas & 2D Fallback ===== */
 const canvas = document.getElementById('c'), statusEl = document.getElementById('status');
 const dpr=Math.min(devicePixelRatio||1,2);
 function fit(){ canvas.width=Math.floor(innerWidth*dpr); canvas.height=Math.floor(innerHeight*dpr); }
@@ -68,10 +71,9 @@ function drawChecker2D(){
 }
 drawChecker2D(); statusEl.textContent='2D checker — WebGL 初期化中…';
 
-/* ===== WebGL core ===== */
+/* ===== WebGL Core ===== */
 let gl, prog, tex=null, start=performance.now();
 function initGL(){
-  // 一部環境の file:// 制限やPWAでの初期化失敗を拾って可視化
   const opts = {alpha:false,antialias:true};
   gl = canvas.getContext('webgl', opts) || canvas.getContext('experimental-webgl', opts);
   if(!gl) throw new Error('WebGL 初期化に失敗（ブラウザ設定/環境）');
@@ -79,7 +81,7 @@ function initGL(){
   const vs=`attribute vec2 aPos;varying vec2 vUv;void main(){vUv=(aPos+1.0)*0.5;gl_Position=vec4(aPos,0.0,1.0);}`;
   const fs=`precision mediump float;varying vec2 vUv;uniform float uTime,uSectors,uHasTex;uniform sampler2D uTex;
   vec3 checker(vec2 uv){float s=16.0;vec2 c=floor(uv*s);float m=mod(c.x+c.y,2.0);float v=mix(0.32,0.10,m);return vec3(v);}
-  void main(){vec2 uv=vUv-0.5;float r=length(uv);float a=atan(uv.y,uv.x);a=mod(a*uSectors/2.0,3.14159265358979323846264);
+  void main(){vec2 uv=vUv-0.5;float r=length(uv);float a=atan(uv.y,uv.x);a=mod(a*uSectors/2.0, 3.14159265358979323846264);
   vec2 p=vec2(cos(a),sin(a))*r;float breathe=1.0+0.25*sin(uTime*0.8);vec2 t=p*breathe+0.5;
   vec3 col=(uHasTex>0.5)?texture2D(uTex,t).rgb:checker(t);gl_FragColor=vec4(col,1.0);}`;
 
@@ -150,7 +152,7 @@ fileInput.addEventListener('change', (e)=>{
   img.src = url;
 });
 
-// D&D
+// D&D でも読める
 let dragDepth = 0;
 window.addEventListener('dragenter', e=>{e.preventDefault(); dragDepth++; statusEl.textContent='⇩ ここに画像をドロップ';});
 window.addEventListener('dragover',  e=>{e.preventDefault();});
@@ -169,19 +171,18 @@ window.addEventListener('drop', e=>{
   }
 });
 
-/* ===== Chime: touch & shake ===== */
-let audioCtx, chimeBuf=null, lastPlay=0;
+/* ===== Chime: element 再生（タップ/シェイク） ===== */
+const chimeEl = document.getElementById('chime');
+let lastPlay = 0;
+
 async function enableAudioSensors(){
   try{
-    audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
-    if(audioCtx.state==='suspended') await audioCtx.resume();
+    // iOSのモーション許可（必要な端末のみ）
     if (typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
       try{ await DeviceMotionEvent.requestPermission(); }catch(e){}
     }
-    if(!chimeBuf){
-      const res = await fetch('./chime.m4a'); const arr = await res.arrayBuffer();
-      chimeBuf = await new Promise((resolve,reject)=>audioCtx.decodeAudioData(arr,resolve,reject));
-    }
+    // iOSのオーディオアンロック（無音再生→停止）
+    try{ await chimeEl.play(); chimeEl.pause(); chimeEl.currentTime = 0; }catch(e){}
     statusEl.textContent='🔊 有効化完了 — タップ/シェイクでチャイム';
   }catch(err){
     statusEl.textContent='❌ 音の初期化失敗: '+err.message;
@@ -191,11 +192,9 @@ document.getElementById('enable').onclick = enableAudioSensors;
 
 function playChime(){
   const now=performance.now(); if(now-lastPlay<300) return; lastPlay=now;
-  if(!audioCtx || !chimeBuf) return;
-  const src=audioCtx.createBufferSource(); src.buffer=chimeBuf;
-  src.connect(audioCtx.destination); src.start(0);
+  chimeEl.currentTime = 0; chimeEl.play().catch(()=>{});
 }
-canvas.addEventListener('pointerdown', ()=>{ if(chimeBuf) playChime(); });
+canvas.addEventListener('pointerdown', playChime);
 
 let lastA={x:0,y:0,z:0}, lastT=0;
 window.addEventListener('devicemotion',(e)=>{
