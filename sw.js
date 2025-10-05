@@ -1,5 +1,5 @@
-// sw.js v1 for Silk Orbits
-const CACHE='silk-orbits-v1';
+// sw.js v1 for Aurora Ribbons
+const CACHE='aurora-ribbons-v1';
 const ASSETS=[
   './',
   './index.html?v=1',
