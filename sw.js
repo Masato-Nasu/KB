@@ -1,11 +1,11 @@
-// sw.js v27
-const SW_VERSION = "v27";
+// sw.js v28
+const SW_VERSION = "v28";
 const CACHE = "radiant-" + SW_VERSION;
 
 const ASSETS = [
   "./",
-  "./index.html?v=27",
-  "./manifest.json?v=27",
+  "./index.html?v=28",
+  "./manifest.json?v=28",
   "./icon-192.png",
   "./icon-512.png",
   "./Chime.mp3"
@@ -29,9 +29,9 @@ self.addEventListener("fetch", e => {
     e.respondWith(
       fetch(req).then(r => {
         const copy = r.clone();
-        caches.open(CACHE).then(c => c.put("./index.html?v=27", copy));
+        caches.open(CACHE).then(c => c.put("./index.html?v=28", copy));
         return r;
-      }).catch(() => caches.match("./index.html?v=27"))
+      }).catch(() => caches.match("./index.html?v=28"))
     );
     return;
   }
