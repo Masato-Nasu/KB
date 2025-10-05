@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v7</title>
-<link rel="manifest" href="./manifest.json?v=21">
+<title>Square Radiant Player v9</title>
+<link rel="manifest" href="./manifest.json?v=23">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -44,7 +44,7 @@
     <button id="play" class="btn">▶ / ❚❚</button>
     <button id="next" class="btn">次 →</button>
   </div>
-  <div class="muted">v21: 円形クリッピング導入（出力は円形）。フィル領域は対角の130%をオーバースキャンして黒を排除。</div>
+  <div class="muted">v23: タイルを<strong>3倍拡大</strong>して描画（下地フィルなし）／重なり控えめで黒除去＆軽量化</div>
 </div>
 
 <script>
@@ -55,18 +55,18 @@
   const stage = document.getElementById('stage');
 
   // パラメータ
-  let SEGS = 72, N = 22;
-  const bleed = 4;          // px
-  const overlap = 0.05;     // 5%
+  let SEGS = 56, N = 16;       // overdraw増えるので控えめ
+  const scaleFactor = 3.0;     // ★各タイルの拡大率
+  const bleed = 6;             // ブリード
+  const overlap = 0.06;        // 重なり率（控えめでOK）
   const dprCap = 1.2;
-  const scaleCrop = 1.05;   // 入力画像の余白回避
-  const FILL_OVERSCAN = 1.3; // フィル領域（内部描画）の直径=対角*1.3
-  const OUT_DIAM_RATIO = 0.9; // 出力円の直径=対角*0.9（見せる円の大きさ）
+  const scaleCrop = 1.05;
+  const FILL_OVERSCAN = 1.3;
+  const OUT_DIAM_RATIO = 0.9;
 
-  // デバイスに応じて軽量化
   const cores = navigator.hardwareConcurrency || 4;
   const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-  if (isMobile) { SEGS = 56; N = 18; }
+  if (!isMobile && cores >= 8) { SEGS = 64; N = 18; }
 
   // 画像を中央正方形トリミング & 1.05x拡大
   async function prepareImageBitmap(img){
@@ -167,8 +167,8 @@
   }
   window.addEventListener('resize',fit,{passive:true}); fit();
 
-  let t=0, last=performance.now();
-  function draw(now){
+  let t=0;
+  function draw(){
     const w=cv.width,h=cv.height;
     ctx.clearRect(0,0,w,h);
     ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
@@ -176,13 +176,13 @@
     if(currentImage){
       const slice=(Math.PI*2)/SEGS;
       const diag = Math.hypot(w,h);
-      const fillRadius = (diag * FILL_OVERSCAN)/2;   // 内部描画の到達半径（対角130%）
-      const half = fillRadius;                       // 描画の基準サイズをこの半径で
+      const fillRadius = (diag * FILL_OVERSCAN)/2;
+      const half = fillRadius;
       const plateSide = half*2;
       const step=plateSide/N;
       const uStep=currentImage.width/N;
       const vStep=currentImage.height/N;
-      const wedgeR=fillRadius*1.02; // さらに少し余裕
+      const wedgeR=fillRadius*1.02;
 
       ctx.save();
       ctx.translate(w/2,h/2);
@@ -190,11 +190,10 @@
 
       for(let i=0;i<SEGS;i++){
         ctx.save();
-        // 角度を1%重なりで描画して放射状の欠けを防止
         ctx.rotate(i*slice - slice*0.01);
         ctx.beginPath();
         ctx.moveTo(0,0);
-        const dy=wedgeR*Math.tan(slice/2 * 1.02); // 幅も少し広げる
+        const dy=wedgeR*Math.tan(slice/2 * 1.02);
         ctx.lineTo(wedgeR,-dy);
         ctx.lineTo(wedgeR,dy);
         ctx.closePath();
@@ -213,8 +212,9 @@
             const px = -half + x*step + step/2;
             const py = -half + y*step + step/2;
 
-            const wDest = step * (1 + overlap);
-            const hDest = step * (1 + overlap);
+            // ★ 3倍拡大して描画（隙間を根本的に潰す）
+            const wDest = step * scaleFactor * (1 + overlap);
+            const hDest = step * scaleFactor * (1 + overlap);
 
             ctx.save();
             ctx.translate(px, py);
@@ -229,7 +229,7 @@
       }
       ctx.restore();
 
-      // ==== 円形クリッピング（出力）====
+      // 円形クリッピング（表示）
       const outRadius = (Math.hypot(w,h) * OUT_DIAM_RATIO)/2;
       ctx.save();
       ctx.globalCompositeOperation="destination-in";
@@ -246,8 +246,7 @@
       boost=Math.sqrt(sum/data.length)*0.008;
     }
 
-    const dt = now - last; last = now;
-    t += (0.0022 + boost) * Math.min(2, dt/16.7); // dtで若干補正
+    t += 0.0022 + boost;
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
@@ -255,7 +254,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=21");
+  navigator.serviceWorker.register("./sw.js?v=23");
 }
 </script>
 </body>
