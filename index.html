@@ -3,10 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>万華鏡（正方形・放射状）PWA</title>
+<title>万華鏡（正方形・放射状）PWA v7</title>
 
-<!-- PWA -->
-<link rel="manifest" href="./manifest.json?v=6">
+<link rel="manifest" href="./manifest.json?v=7">
 <meta name="theme-color" content="#0f0f12">
 <link rel="icon" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -14,18 +13,14 @@
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden}
   #c{width:100vw;height:100vh;display:block;touch-action:manipulation}
-  #ui{
-    position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
-    display:flex;gap:10px;align-items:center;color:#fff;font-family:sans-serif;
-    font-size:14px;flex-wrap:wrap;justify-content:center;z-index:3
-  }
+  #ui{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
+      display:flex;gap:10px;align-items:center;color:#fff;font-family:sans-serif;font-size:14px;flex-wrap:wrap;justify-content:center;z-index:3}
   input[type=file]{appearance:auto;background:#111;color:#fff;border:1px solid #444;border-radius:8px;padding:8px 12px}
   button{background:#111;border:1px solid #444;border-radius:8px;padding:8px 14px;cursor:pointer;color:#fff}
-  #status{position:fixed;top:10px;left:50%;transform:translateX(-50%);color:#9cf;font-family:monospace;font-size:12px;opacity:.95;z-index:3;text-align:center;white-space:pre-wrap}
+  #status{position:fixed;top:10px;left:50%;transform:translateX(-50%);color:#9cf;font-family:monospace;font-size:12px;opacity:.95;z-index:3;text-align:center;white-space:pre-wrap;max-width:96vw}
   #install{position:fixed;top:10px;right:10px}
   #dropHint{position:fixed;inset:auto auto 64px 50%;transform:translateX(-50%);color:#bbb;font:12px/1.4 sans-serif;z-index:3;opacity:.9}
   label{display:flex;gap:6px;align-items:center}
-  .warn{color:#ffc107}
 </style>
 </head>
 <body>
@@ -33,35 +28,29 @@
 <div id="status">booting…</div>
 
 <div id="ui">
-  <!-- 画像 -->
   <input type="file" id="img" accept="image/*" title="画像ファイルを選択">
   <button id="reset" title="既定模様に戻す">画像クリア</button>
 
-  <!-- 音（センサー＆チャイム） -->
   <button id="enable" title="iOS等で必要">🔊 センサーと音を有効化</button>
 
-  <!-- 音楽プレーヤー（読み込んだ音源をチャイムにも使用） -->
-  <input type="file" id="music" accept="audio/*" title="音楽/効果音を選択（チャイムにも使用）">
+  <input type="file" id="music" accept="audio/*" title="音楽/効果音（チャイムにも使用）">
   <button id="play">▶︎ 再生/一時停止</button>
 
-  <!-- セグメント数 -->
-  <label>セグメント
-    <input id="seg" type="range" min="8" max="96" step="2" value="32">
-  </label>
+  <label>セグメント <input id="seg" type="range" min="8" max="96" step="2" value="32"></label>
 
   <button id="install" hidden>+ インストール</button>
 </div>
 <div id="dropHint">🖼 画像はドラッグ＆ドロップでも読み込めます</div>
 
-<!-- 既定チャイム（フォールバック）。※ファイル名は大文字C：Chime.m4a -->
-<audio id="chime" src="./Chime.m4a?v=6" preload="auto" playsinline></audio>
-<!-- ユーザー音源用プレーヤー -->
+<!-- 既定チャイム（未選択時フォールバック） -->
+<audio id="chime" src="./Chime.m4a?v=7" preload="auto" playsinline></audio>
+<!-- ユーザー音源 -->
 <audio id="player" preload="none" playsinline></audio>
 
 <script>
 /* ===== Service Worker（即時更新） ===== */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=6').then(reg => {
+  navigator.serviceWorker.register('./sw.js?v=7').then(reg => {
     if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
     reg.addEventListener('updatefound', () => {
       const sw = reg.installing;
@@ -72,7 +61,7 @@ if ('serviceWorker' in navigator) {
       });
     });
   }).catch(e=>{
-    document.getElementById('status').textContent = 'SW登録失敗: '+e.message+'\n(https/localhostでのみ有効)';
+    log('SW登録失敗: '+e.message+'\\n(https/localhostでのみ有効)');
   });
 }
 
@@ -82,8 +71,13 @@ const installBtn = document.getElementById('install');
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt=e; installBtn.hidden=false; });
 installBtn.onclick = async () => { installBtn.hidden=true; if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; } };
 
+/* ===== Helpers ===== */
+const statusEl = document.getElementById('status');
+function log(msg){ statusEl.textContent = msg; }
+function append(msg){ statusEl.textContent = msg + '\\n' + statusEl.textContent; }
+
 /* ===== Canvas サイズ ===== */
-const canvas = document.getElementById('c'), statusEl = document.getElementById('status');
+const canvas = document.getElementById('c');
 const dpr=Math.min(devicePixelRatio||1,2);
 function fit(){
   canvas.width=Math.floor(innerWidth*dpr);
@@ -103,8 +97,7 @@ function drawChecker2D(){
     ctx2d.fillStyle=((x+y)&1)?'#202020':'#505050'; ctx2d.fillRect(x*s,y*s,s,s);
   }
 }
-drawChecker2D();
-statusEl.textContent='2D 起動 — WebGL 初期化中…';
+drawChecker2D(); log('2D 起動 — WebGL 初期化中…');
 
 /* ===== WebGL（放射＋正方形断ち切り＋フラグメント内モーション） ===== */
 let gl, prog, tex=null, start=performance.now(), img2D=null;
@@ -126,27 +119,23 @@ function initGL(){
   mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
 
   void main(){
-    // 正方形キャンバス座標 [-0.5,0.5]
     vec2 center = uRes * 0.5;
     float side  = min(uRes.x, uRes.y);
     vec2 p = (gl_FragCoord.xy - center) / side;
 
-    // 正方形の外は黒で断ち切り
     if (max(abs(p.x), abs(p.y)) > 0.5) { gl_FragColor = vec4(0.0,0.0,0.0,1.0); return; }
 
-    // 放射分割（奇数セクタで反転）
     float TWO_PI = 6.28318530718;
     float sector = TWO_PI / uSectors;
     float ang = atan(p.y, p.x);
-    float k = floor(ang / sector);      // セクタ番号
+    float k = floor(ang / sector);
     float a = mod(ang, sector);
     if (mod(k, 2.0) > 0.5) a = sector - a;
 
     float r = length(p);
     vec2 dir = vec2(cos(a), sin(a));
 
-    // セグメント内モーション（位相ずらし＋微回転＋スライド）
-    float phase = k * 2.618;            // ばらける位相
+    float phase = k * 2.618;
     float spin  = 0.12 * sin(uTime*0.6 + phase);
     vec2  d     = rot(spin) * (dir * r);
     float breathe = 1.0 + 0.18*sin(uTime*0.8 + 0.7*phase);
@@ -157,10 +146,14 @@ function initGL(){
 
     vec3 col = (uHasTex>0.5) ? texture2D(uTex, mirror(t)).rgb
                              : vec3(0.25+0.25*sin(10.0*t.x), 0.25+0.25*sin(10.0*t.y), 0.3);
-    gl_FragColor = vec4(col,1.0);
-  }`;
+    gl.FragColor = vec4(col,1.0);
+  }`.replace('gl.FragColor','gl_FragColor'); // Safari対策
 
-  function sh(tp,src){ const s=gl.createShader(tp); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error('Shader compile: '+gl.getShaderInfoLog(s)); return s; }
+  function sh(tp,src){
+    const s=gl.createShader(tp); gl.shaderSource(s,src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error('Shader compile: '+gl.getShaderInfoLog(s));
+    return s;
+  }
   const vsObj=sh(gl.VERTEX_SHADER,vs), fsObj=sh(gl.FRAGMENT_SHADER,fs);
   prog=gl.createProgram(); gl.attachShader(prog,vsObj); gl.attachShader(prog,fsObj); gl.linkProgram(prog);
   if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error('Program link: '+gl.getProgramInfoLog(prog));
@@ -181,22 +174,29 @@ function initGL(){
   gl.uniform1i(prog.uTex, 0);
   gl.viewport(0,0,canvas.width,canvas.height);
   gl.uniform2f(prog.uRes, canvas.width, canvas.height);
-  statusEl.textContent='WebGL 初期化OK — 放射/正方形/モーション';
+  log('WebGL 初期化OK — 放射/正方形/モーション');
 }
 
 function makeTextureFromImage(img){
-  if(!gl){ img2D = img; statusEl.textContent='✅ 画像ロード完了（2Dモード）'; return; }
-  if(!tex) tex=gl.createTexture();
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D,tex);
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
-  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
-  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);
-  gl.uniform1f(prog.uHasTex,1.0);
-  statusEl.textContent='✅ 画像ロード完了（WebGL）';
+  try{
+    if(!gl){ img2D = img; log('✅ 画像ロード完了（2Dモード）'); return; }
+    if(!tex) tex=gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D,tex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
+
+    // ★ ここを REPEAT → CLAMP_TO_EDGE に修正（NPOT対応）
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+
+    gl.uniform1f(prog.uHasTex,1.0);
+    log('✅ 画像ロード完了（WebGLテクスチャOK）');
+  }catch(e){
+    img2D = img; log('⚠ WebGLテクスチャ失敗 → 2D描画にフォールバック: '+e.message);
+  }
 }
 
 function render(){
@@ -206,7 +206,6 @@ function render(){
     gl.uniform1f(prog.uTime,t);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   }else{
-    // 2Dタイルの簡易フォールバック
     const w=canvas.width,h=canvas.height;
     ctx2d.clearRect(0,0,w,h);
     if(img2D){
@@ -226,23 +225,22 @@ function render(){
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
-try{ initGL(); }catch(e){ statusEl.textContent='⚠ WebGL 初期化に失敗: '+e.message+'\n(https/localhost推奨、ハードウェアアクセラ有効)'; }
+try{ initGL(); }catch(e){ log('⚠ WebGL 初期化に失敗: '+e.message+'\\n(https/localhost推奨、ハードウェアアクセラ有効)'); }
 
 /* ===== 画像 I/O ===== */
-const fileInput = document.getElementById('img');
-document.getElementById('reset').onclick = ()=>{ img2D=null; if(gl && tex){ gl.uniform1f(prog.uHasTex,0.0); } statusEl.textContent='画像クリア'; };
-fileInput.addEventListener('change', (e)=>{
-  const f=e.target.files && e.target.files[0]; if(!f) return;
+document.getElementById('reset').onclick = ()=>{ img2D=null; if(gl && tex){ gl.uniform1f(prog.uHasTex,0.0); } log('画像クリア'); };
+document.getElementById('img').addEventListener('change', (e)=>{
+  const f=e.target.files && e.target.files[0]; if(!f){ append('画像未選択'); return; }
   const url = URL.createObjectURL(f);
   const img = new Image();
   img.onload = ()=>{ makeTextureFromImage(img); URL.revokeObjectURL(url); };
-  img.onerror = ()=>{ statusEl.textContent='❌ 画像を読み込めませんでした'; };
+  img.onerror = (ev)=>{ log('❌ 画像を読み込めませんでした: '+(ev?.message||'')); };
   img.src = url;
 });
 let dragDepth = 0;
-addEventListener('dragenter', e=>{e.preventDefault(); dragDepth++; statusEl.textContent='⇩ ここに画像をドロップ';});
+addEventListener('dragenter', e=>{e.preventDefault(); dragDepth++; log('⇩ ここに画像をドロップ');});
 addEventListener('dragover',  e=>{e.preventDefault();});
-addEventListener('dragleave', e=>{e.preventDefault(); dragDepth=Math.max(0,dragDepth-1); if(!dragDepth) statusEl.textContent='稼働中 — 画像はボタンかD&Dで';});
+addEventListener('dragleave', e=>{e.preventDefault(); dragDepth=Math.max(0,dragDepth-1); if(!dragDepth) log('稼働中 — 画像はボタンかD&Dで');});
 addEventListener('drop', e=>{
   e.preventDefault(); dragDepth=0;
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
@@ -250,15 +248,15 @@ addEventListener('drop', e=>{
     const url = URL.createObjectURL(f);
     const img = new Image();
     img.onload = ()=>{ makeTextureFromImage(img); URL.revokeObjectURL(url); };
-    img.onerror = ()=>{ statusEl.textContent='❌ 画像を読み込めませんでした'; };
+    img.onerror = (ev)=>{ log('❌ 画像を読み込めませんでした: '+(ev?.message||'')); };
     img.src = url;
-  }else{ statusEl.textContent='ℹ 画像ファイルをドロップしてください'; }
+  }else{ log('ℹ 画像ファイルをドロップしてください'); }
 });
 
-/* ===== チャイム（タップ/シェイク） ===== */
-const chimeEl = document.getElementById('chime');     // 既定は Chime.m4a
-const player  = document.getElementById('player');    // ユーザー音源
-let lastPlay = 0;
+/* ===== オーディオ（チャイム & 音楽） ===== */
+const chimeEl = document.getElementById('chime');
+const player  = document.getElementById('player');
+let audioEnabled = false;
 
 async function enableAudioSensors(){
   try{
@@ -267,15 +265,21 @@ async function enableAudioSensors(){
     }
     // iOS オーディオアンロック
     try{ await chimeEl.play(); chimeEl.pause(); chimeEl.currentTime = 0; }catch(e){}
-    statusEl.textContent='🔊 有効化：タップ/シェイクでチャイム（読み込んだ音源を使用）';
-  }catch(err){ statusEl.textContent='❌ 音の初期化失敗: '+err.message; }
+    audioEnabled = true;
+    append('🔊 音が有効になりました（タップ/シェイクでチャイム）');
+  }catch(err){ log('❌ 音の初期化失敗: '+err.message); }
 }
 document.getElementById('enable').onclick = enableAudioSensors;
 
+function tryPlay(el, label){
+  el.play().then(()=>{ append('▶ ' + label + ' 再生開始'); })
+    .catch(err=>{ append('⛔ ' + label + ' 再生失敗: ' + err.message + '\\n（画面を一度タップ/「音を有効化」を押してから）'); });
+}
+
 function playChime(){
-  const now=performance.now(); if(now-lastPlay<300) return; lastPlay=now;
+  if(!audioEnabled){ append('⛔ 先に「センサーと音を有効化」を押してください'); return; }
   chimeEl.currentTime = 0;
-  chimeEl.play().catch(()=>{});
+  tryPlay(chimeEl, 'チャイム');
 }
 canvas.addEventListener('pointerdown', playChime);
 let lastA={x:0,y:0,z:0}, lastT=0;
@@ -286,25 +290,29 @@ addEventListener('devicemotion',(e)=>{
   if(mag>18 && t-lastT>600){ lastT=t; playChime(); }
 },{passive:true});
 
-/* ===== 音楽プレーヤー（読み込むとチャイム音源も切替） ===== */
-const musicInput = document.getElementById('music');
-const playBtn = document.getElementById('play');
-
-musicInput.addEventListener('change', e=>{
-  const f = e.target.files && e.target.files[0]; if(!f) return;
+/* 音楽選択 → チャイム音源にも反映。選択直後、自動再生トライ */
+document.getElementById('music').addEventListener('change', e=>{
+  const f = e.target.files && e.target.files[0];
+  if(!f){ append('音源未選択'); return; }
   const url = URL.createObjectURL(f);
   player.src = url;
-  chimeEl.src = url; // ★チャイムもこの音源を使用
-  player.onloadedmetadata = ()=>{ statusEl.textContent='🎵 音源読み込み完了（チャイムにも使用）：' + (f.name||'audio'); };
+  chimeEl.src = url; // チャイムもこの音源を使用
+  player.onloadedmetadata = ()=>{
+    append('🎵 音源読み込み完了：' + (f.name||'audio'));
+    if(audioEnabled){ tryPlay(player, '音楽'); }
+    else { append('（先に「センサーと音を有効化」を押すと自動再生できます）'); }
+  };
+  player.onerror = (e)=>{ append('❌ 音源エラー: ' + (player.error?.message||'unknown')); };
 });
 
-playBtn.onclick = ()=>{
-  if(!player.src){ statusEl.textContent='ℹ 先に音楽ファイルを選択してください'; return; }
-  if(player.paused){ player.play().then(()=>{ playBtn.textContent='⏸ 一時停止'; }).catch(()=>{}); }
-  else { player.pause(); playBtn.textContent='▶︎ 再生'; }
+/* 再生/一時停止ボタン */
+document.getElementById('play').onclick = ()=>{
+  if(!player.src){ append('ℹ 先に音楽ファイルを選択してください'); return; }
+  if(player.paused){ tryPlay(player, '音楽'); this.textContent='⏸ 一時停止'; }
+  else { player.pause(); append('⏸ 一時停止'); this.textContent='▶︎ 再生/一時停止'; }
 };
 
-/* ===== セグメント数スライダー ===== */
+/* セグメント数 */
 document.getElementById('seg').addEventListener('input', e=>{
   const v = parseFloat(e.target.value);
   if(gl) gl.uniform1f(prog.uSectors, v);
