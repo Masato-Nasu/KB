@@ -1,13 +1,14 @@
-// sw.js v14 — Square Radiant Player
+// sw.js v14 — 確実更新・自動切替
 const SW_VERSION = "v14";
 const CACHE = "radiant-" + SW_VERSION;
+
 const ASSETS = [
   "./",
   "./index.html?v=14",
   "./manifest.json?v=14",
   "./icon-192.png",
   "./icon-512.png",
-  "./Chime.mp3?v=1"
+  "./Chime.mp3"
 ];
 
 self.addEventListener("install", e => {

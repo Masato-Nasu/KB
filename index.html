@@ -3,49 +3,52 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player — PWA</title>
+<title>Square Radiant Player v2</title>
 <link rel="manifest" href="./manifest.json?v=14">
-<link rel="icon" href="./icon-192.png" type="image/png">
-<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-512.png">
 <meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <script>
-  // PWA登録
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js?v=14');
-  }
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js?v=14');
+}
 </script>
 <style>
   :root{
-    --bg:#0e0f12;--panel:#111418;--text:#e8e9ee;--muted:#8b90a1;
+    --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
   }
-  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
-             font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif;overflow:hidden;}
+  html,body{
+    height:100%;margin:0;
+    background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif;
+  }
   .wrap{display:flex;flex-direction:column;align-items:center;gap:10px;min-height:100%}
   header{width:100%;max-width:1100px;padding:10px 14px;box-sizing:border-box;color:var(--muted)}
-  .stage{position:relative;display:grid;place-items:center;width:100%;max-width:1100px;
-         aspect-ratio:1;background:#000;border-radius:12px;cursor:pointer;overflow:hidden}
-  canvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 8px 25px rgba(0,0,0,.4);
-         transition:filter .3s ease}
-  .flash-layer{position:absolute;inset:0;background:white;opacity:0;pointer-events:none;
-               transition:opacity .4s ease;}
-  .flash-layer.active{opacity:.8;}
-  .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;
-            padding:12px;background:var(--panel);border-radius:12px;margin:6px;max-width:1100px}
-  .btn{appearance:none;border:0;border-radius:10px;background:#171a20;color:#eaeef8;
-       padding:10px 12px;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+  .stage{position:relative;display:grid;place-items:center;width:100%;max-width:1100px;aspect-ratio:1;background:#000;border-radius:12px;cursor:pointer;overflow:hidden}
+  canvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);transition:filter 0.9s ease;}
+  .flash{filter:brightness(2);transition:filter 0.1s ease;}
+  .controls{
+    display:flex;flex-wrap:wrap;gap:8px;
+    justify-content:center;align-items:center;
+    padding:12px;background:var(--panel);
+    border-radius:12px;margin:6px;max-width:1100px
+  }
+  .btn{
+    appearance:none;border:0;border-radius:10px;
+    background:#171a20;color:#eaeef8;
+    padding:10px 12px;display:inline-flex;
+    align-items:center;gap:8px;cursor:pointer
+  }
   .btn:active{transform:translateY(1px)}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>四角い放射花火 — クリックでチャイムと白フラッシュ。PWA対応。</header>
-  <div class="stage" id="stage">
-    <canvas id="cv"></canvas>
-    <div class="flash-layer" id="flash"></div>
-  </div>
+  <header>クリックでチャイム＋短い余韻。前後曲ボタン・自動再生対応。</header>
+  <div class="stage" id="stage"><canvas id="cv"></canvas></div>
   <div class="controls">
-    <label class="btn">🖼 画像<input id="imgFile" type="file" accept="image/*" hidden></label>
+    <label class="btn">🖼 画像ファイル<input id="imgFile" type="file" accept="image/*" hidden></label>
     <label class="btn">🎵 音楽フォルダ<input id="audDir" type="file" webkitdirectory directory multiple accept="audio/*" hidden></label>
     <button id="prev" class="btn">← 前</button>
     <button id="play" class="btn">▶ / ❚❚</button>
@@ -55,114 +58,154 @@
 
 <script>
 (() => {
-  const cv=document.getElementById('cv');
-  const ctx=cv.getContext('2d');
-  const stage=document.getElementById('stage');
-  const flash=document.getElementById('flash');
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const stage = document.getElementById('stage');
 
-  // === 画像 ===
-  let currentImage=null;
-  document.getElementById('imgFile').addEventListener('change',async e=>{
-    const f=e.target.files?.[0];if(!f)return;
-    const url=URL.createObjectURL(f);
-    const img=await createImageBitmap(await (await fetch(url)).blob());
-    URL.revokeObjectURL(url);currentImage=img;
+  let currentImage = null;
+  document.getElementById('imgFile').addEventListener('change', async e=>{
+    const f = e.target.files?.[0];
+    if(!f) return;
+    const url = URL.createObjectURL(f);
+    const img = await createImageBitmap(await (await fetch(url)).blob());
+    URL.revokeObjectURL(url);
+    currentImage = img;
   });
 
-  // === 音楽 ===
-  let audList=[],audIdx=0;
-  const audio=new Audio();
-  let actx,analyser,data;let playing=false;rms=0;
+  let audList = [], audIdx = 0;
+  let audio = new Audio();
+  let actx, analyser, data;
+  let playing = false;
+
   function ensureAudio(){
-    if(actx)return;
-    actx=new (window.AudioContext||window.webkitAudioContext)();
-    const src=actx.createMediaElementSource(audio);
-    analyser=actx.createAnalyser();analyser.fftSize=256;
-    data=new Uint8Array(analyser.frequencyBinCount);
+    if(actx) return;
+    actx = new (window.AudioContext||window.webkitAudioContext)();
+    const src = actx.createMediaElementSource(audio);
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 512;
+    data = new Uint8Array(analyser.frequencyBinCount);
     src.connect(analyser).connect(actx.destination);
   }
-  const naturalSort=(a,b)=>a.name.localeCompare(b.name,'ja',{numeric:true});
-  document.getElementById('audDir').addEventListener('change',e=>{
+
+  function naturalSort(a,b){ return a.name.localeCompare(b.name,'ja',{numeric:true}); }
+
+  document.getElementById('audDir').addEventListener('change', async e=>{
     ensureAudio();
-    audList=[...e.target.files].filter(f=>f.type.startsWith('audio/')).sort(naturalSort);
-    audIdx=0;if(audList.length)playIndex(audIdx);
+    audList = [...e.target.files].filter(f=>f.type.startsWith('audio/')).sort(naturalSort);
+    audIdx = 0;
+    if(audList.length){ playIndex(audIdx); }
   });
+
   function playIndex(i){
-    if(!audList.length)return;
-    const f=audList[i];audio.src=URL.createObjectURL(f);audio.play();playing=true;
+    if(!audList.length) return;
+    const file = audList[i];
+    audio.src = URL.createObjectURL(file);
+    audio.play();
+    playing = true;
   }
-  document.getElementById('next').onclick=()=>{if(audList.length){audIdx=(audIdx+1)%audList.length;playIndex(audIdx);} };
-  document.getElementById('prev').onclick=()=>{if(audList.length){audIdx=(audIdx-1+audList.length)%audList.length;playIndex(audIdx);} };
-  audio.onended=()=>{if(audList.length){audIdx=(audIdx+1)%audList.length;playIndex(audIdx);} };
-  document.getElementById('play').onclick=async()=>{
-    ensureAudio();
-    if(actx.state==='suspended')await actx.resume();
-    if(audio.paused){audio.play();playing=true;}else{audio.pause();playing=false;}
-  };
 
-  // === チャイム＋フラッシュ ===
-  const chime=new Audio("./Chime.mp3");chime.volume=.5;
-  stage.onclick=()=>{chime.currentTime=0;chime.play();flash.classList.add('active');
-                     setTimeout(()=>flash.classList.remove('active'),300);}; // ← 時間短め
+  document.getElementById('next').addEventListener('click',()=>{
+    if(!audList.length) return;
+    audIdx = (audIdx + 1) % audList.length;
+    playIndex(audIdx);
+  });
+  document.getElementById('prev').addEventListener('click',()=>{
+    if(!audList.length) return;
+    audIdx = (audIdx - 1 + audList.length) % audList.length;
+    playIndex(audIdx);
+  });
 
-  // === Canvas ===
-  const fit=()=>{const s=Math.min(window.innerWidth,window.innerHeight)-40;
-                 cv.width=cv.height=Math.max(300,Math.floor(s));};
-  window.addEventListener('resize',fit,{passive:true});fit();
-
-  // === 描画 ===
-  let t=0,frame=0;const SEGS=40,N=10;
-  function draw(){
-    if(++frame%2){requestAnimationFrame(draw);return;}
-    const w=cv.width,h=cv.height;
-    ctx.clearRect(0,0,w,h);ctx.fillStyle="#000";ctx.fillRect(0,0,w,h);
-
-    if(analyser&&playing){
-      analyser.getByteTimeDomainData(data);
-      let s=0;for(let i=0;i<data.length;i++){const d=(data[i]-128)/128;s+=d*d;}
-      rms=Math.sqrt(s/data.length);
+  audio.addEventListener('ended', ()=>{
+    if(audList.length){
+      audIdx = (audIdx + 1) % audList.length;
+      playIndex(audIdx);
     }
+  });
+
+  document.getElementById('play').addEventListener('click', async ()=>{
+    ensureAudio();
+    if(actx.state==='suspended') await actx.resume();
+    if(audio.paused){ audio.play(); playing=true; } else { audio.pause(); playing=false; }
+  });
+
+  const chime = new Audio("./Chime.mp3");
+  chime.volume = 0.5;
+
+  stage.addEventListener('click', ()=>{
+    chime.currentTime = 0;
+    chime.play();
+    cv.classList.add('flash');
+    setTimeout(()=>cv.classList.remove('flash'),500); // ← フラッシュ短縮
+  });
+
+  function fit(){
+    const s = Math.min(window.innerWidth, window.innerHeight)-40;
+    cv.width = cv.height = Math.max(300,Math.floor(s));
+  }
+  window.addEventListener('resize',fit,{passive:true});
+  fit();
+
+  let t=0;
+  function draw(){
+    const w=cv.width,h=cv.height;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
 
     if(currentImage){
+      const SEGS=80;
       const slice=(Math.PI*2)/SEGS;
-      const side=Math.min(w,h)*0.8;
-      const plateSide=side*1.6;
+      const N=24;
+      const plateSide=Math.min(w,h)*1.8;
       const half=plateSide/2;
       const step=plateSide/N;
-      const u=currentImage.width/N,v=currentImage.height/N;
-      const wedgeR=Math.hypot(half,half)*1.05;
+      const uStep=currentImage.width/N;
+      const vStep=currentImage.height/N;
+      const wedgeR=Math.hypot(half,half)*1.1;
 
-      ctx.save();ctx.translate(w/2,h/2);ctx.rotate(t);ctx.globalCompositeOperation="lighter";
+      ctx.save();
+      ctx.translate(w/2,h/2);
+      ctx.rotate(t);
+
       for(let i=0;i<SEGS;i++){
-        ctx.save();ctx.rotate(i*slice);
-        ctx.beginPath();ctx.moveTo(0,0);
+        ctx.save();
+        ctx.rotate(i*slice);
+        ctx.beginPath();
+        ctx.moveTo(0,0);
         const dy=wedgeR*Math.tan(slice/2);
-        ctx.lineTo(wedgeR,-dy);ctx.lineTo(wedgeR,dy);ctx.closePath();ctx.clip();
+        ctx.lineTo(wedgeR,-dy);
+        ctx.lineTo(wedgeR,dy);
+        ctx.closePath();
+        ctx.clip();
+
         for(let y=0;y<N;y++){
           for(let x=0;x<N;x++){
-            const sx=(x*u+(t*40+i*13)%u)%currentImage.width;
-            const sy=(y*v+(t*25+i*17)%v)%currentImage.height;
-            ctx.drawImage(currentImage,sx,sy,u,v,-half+x*step,-half+y*step,step,step);
+            const sx=(x*uStep+(t*40+i*13)%uStep)%currentImage.width;
+            const sy=(y*vStep+(t*25+i*17)%vStep)%currentImage.height;
+            ctx.drawImage(currentImage,sx,sy,uStep,vStep,-half+x*step,-half+y*step,step,step);
           }
         }
         ctx.restore();
       }
-      ctx.restore();ctx.globalCompositeOperation="source-over";
+      ctx.restore();
 
-      // 中央ウィンドウ
-      ctx.save();ctx.globalCompositeOperation="destination-in";
-      ctx.rect((w-side)/2,(h-side)/2,side,side);ctx.fill();ctx.restore();
-
-      // 中央グロー（軽量）
-      const grad=ctx.createRadialGradient(w/2,h/2,0,w/2,h/2,side/2);
-      grad.addColorStop(0,`rgba(255,255,255,${Math.min(0.4,rms*3)})`);
-      grad.addColorStop(1,"transparent");
-      ctx.fillStyle=grad;ctx.globalCompositeOperation="lighter";
-      ctx.fillRect(0,0,w,h);
-      ctx.globalCompositeOperation="source-over";
+      const side=Math.min(w,h)*0.8;
+      ctx.save();
+      ctx.globalCompositeOperation="destination-in";
+      ctx.beginPath();
+      ctx.rect((w-side)/2,(h-side)/2,side,side);
+      ctx.fill();
+      ctx.restore();
     }
 
-    t+=0.0025+rms*0.005;
+    let boost=0;
+    if(analyser && playing){
+      analyser.getByteTimeDomainData(data);
+      let sum=0; for(let i=0;i<data.length;i++){ const d=(data[i]-128)/128; sum+=d*d; }
+      const rms=Math.sqrt(sum/data.length);
+      boost=rms*0.008;
+    }
+
+    t += 0.0025 + boost;
     requestAnimationFrame(draw);
   }
   draw();
