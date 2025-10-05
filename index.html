@@ -4,16 +4,15 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <title>Square Radiant Player v2</title>
-<link rel="manifest" href="./manifest.json?v=14">
-<link rel="icon" href="./icon-192.png">
-<link rel="apple-touch-icon" href="./icon-512.png">
-<meta name="theme-color" content="#000000">
-<meta name="apple-mobile-web-app-capable" content="yes">
+
+<!-- ★ PWA最小追加（既存 v13 に合わせる） -->
+<link rel="manifest" href="./manifest.json?v=13">
 <script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=14');
-}
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js?v=13');
+  }
 </script>
+
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -26,8 +25,8 @@ if ('serviceWorker' in navigator) {
   .wrap{display:flex;flex-direction:column;align-items:center;gap:10px;min-height:100%}
   header{width:100%;max-width:1100px;padding:10px 14px;box-sizing:border-box;color:var(--muted)}
   .stage{position:relative;display:grid;place-items:center;width:100%;max-width:1100px;aspect-ratio:1;background:#000;border-radius:12px;cursor:pointer;overflow:hidden}
-  canvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);transition:filter 0.9s ease;}
-  .flash{filter:brightness(2);transition:filter 0.1s ease;}
+  canvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);transition:filter 1.2s ease;}
+  .flash{filter:brightness(2);transition:filter 0.2s ease;}
   .controls{
     display:flex;flex-wrap:wrap;gap:8px;
     justify-content:center;align-items:center;
@@ -45,7 +44,7 @@ if ('serviceWorker' in navigator) {
 </head>
 <body>
 <div class="wrap">
-  <header>クリックでチャイム＋短い余韻。前後曲ボタン・自動再生対応。</header>
+  <header>クリックでチャイム＋長い余韻。前後曲ボタン・自動再生対応。</header>
   <div class="stage" id="stage"><canvas id="cv"></canvas></div>
   <div class="controls">
     <label class="btn">🖼 画像ファイル<input id="imgFile" type="file" accept="image/*" hidden></label>
@@ -62,6 +61,7 @@ if ('serviceWorker' in navigator) {
   const ctx = cv.getContext('2d');
   const stage = document.getElementById('stage');
 
+  // === 画像 ===
   let currentImage = null;
   document.getElementById('imgFile').addEventListener('change', async e=>{
     const f = e.target.files?.[0];
@@ -72,6 +72,7 @@ if ('serviceWorker' in navigator) {
     currentImage = img;
   });
 
+  // === 音楽 ===
   let audList = [], audIdx = 0;
   let audio = new Audio();
   let actx, analyser, data;
@@ -104,6 +105,7 @@ if ('serviceWorker' in navigator) {
     playing = true;
   }
 
+  // 次・前
   document.getElementById('next').addEventListener('click',()=>{
     if(!audList.length) return;
     audIdx = (audIdx + 1) % audList.length;
@@ -115,6 +117,7 @@ if ('serviceWorker' in navigator) {
     playIndex(audIdx);
   });
 
+  // 自動次曲
   audio.addEventListener('ended', ()=>{
     if(audList.length){
       audIdx = (audIdx + 1) % audList.length;
@@ -122,22 +125,26 @@ if ('serviceWorker' in navigator) {
     }
   });
 
+  // 再生/一時停止
   document.getElementById('play').addEventListener('click', async ()=>{
     ensureAudio();
     if(actx.state==='suspended') await actx.resume();
     if(audio.paused){ audio.play(); playing=true; } else { audio.pause(); playing=false; }
   });
 
+  // === チャイム音 ===
   const chime = new Audio("./Chime.mp3");
   chime.volume = 0.5;
 
+  // === クリック反応（フラッシュ時間のみ短縮） ===
   stage.addEventListener('click', ()=>{
     chime.currentTime = 0;
     chime.play();
     cv.classList.add('flash');
-    setTimeout(()=>cv.classList.remove('flash'),500); // ← フラッシュ短縮
+    setTimeout(()=>cv.classList.remove('flash'), 600); // ← 1200ms から短縮
   });
 
+  // === Canvas sizing ===
   function fit(){
     const s = Math.min(window.innerWidth, window.innerHeight)-40;
     cv.width = cv.height = Math.max(300,Math.floor(s));
@@ -145,6 +152,7 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('resize',fit,{passive:true});
   fit();
 
+  // === 放射描画（オリジナル完全維持） ===
   let t=0;
   function draw(){
     const w=cv.width,h=cv.height;
@@ -180,7 +188,7 @@ if ('serviceWorker' in navigator) {
         for(let y=0;y<N;y++){
           for(let x=0;x<N;x++){
             const sx=(x*uStep+(t*40+i*13)%uStep)%currentImage.width;
-            const sy=(y*vStep+(t*25+i*17)%vStep)%currentImage.height;
+            const sy=(y*vStep+(t*25+i*17)%vStep)%vStep%currentImage.height;
             ctx.drawImage(currentImage,sx,sy,uStep,vStep,-half+x*step,-half+y*step,step,step);
           }
         }
@@ -188,6 +196,7 @@ if ('serviceWorker' in navigator) {
       }
       ctx.restore();
 
+      // 中央ウィンドウ
       const side=Math.min(w,h)*0.8;
       ctx.save();
       ctx.globalCompositeOperation="destination-in";
@@ -197,6 +206,7 @@ if ('serviceWorker' in navigator) {
       ctx.restore();
     }
 
+    // 音量ブースト
     let boost=0;
     if(analyser && playing){
       analyser.getByteTimeDomainData(data);
