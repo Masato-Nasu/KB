@@ -42,9 +42,7 @@
 </div>
 <div id="dropHint">🖼 画像はドラッグ＆ドロップでも読み込めます</div>
 
-<!-- 既定チャイム（未選択時フォールバック） -->
 <audio id="chime" src="./Chime.m4a?v=7" preload="auto" playsinline></audio>
-<!-- ユーザー音源 -->
 <audio id="player" preload="none" playsinline></audio>
 
 <script>
@@ -60,9 +58,7 @@ if ('serviceWorker' in navigator) {
         }
       });
     });
-  }).catch(e=>{
-    log('SW登録失敗: '+e.message+'\\n(https/localhostでのみ有効)');
-  });
+  }).catch(e=>{ log('SW登録失敗: '+e.message+'\\n(https/localhostでのみ有効)'); });
 }
 
 /* ===== PWA Install ===== */
@@ -76,7 +72,7 @@ const statusEl = document.getElementById('status');
 function log(msg){ statusEl.textContent = msg; }
 function append(msg){ statusEl.textContent = msg + '\\n' + statusEl.textContent; }
 
-/* ===== Canvas サイズ ===== */
+/* ===== Canvas ===== */
 const canvas = document.getElementById('c');
 const dpr=Math.min(devicePixelRatio||1,2);
 function fit(){
@@ -89,7 +85,7 @@ function fit(){
 }
 addEventListener('resize', fit); fit();
 
-/* ===== 2D フォールバック ===== */
+/* ===== 2D fallback ===== */
 const ctx2d = canvas.getContext('2d');
 function drawChecker2D(){
   const w=canvas.width,h=canvas.height,c=16,s=Math.ceil(Math.min(w,h)/c);
@@ -114,46 +110,34 @@ function initGL(){
   uniform float uTime, uSectors, uHasTex;
   uniform sampler2D uTex;
   uniform vec2 uRes;
-
   vec2 mirror(vec2 x){ return abs(fract(x)-0.5)*2.0; }
   mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
-
   void main(){
     vec2 center = uRes * 0.5;
     float side  = min(uRes.x, uRes.y);
     vec2 p = (gl_FragCoord.xy - center) / side;
-
     if (max(abs(p.x), abs(p.y)) > 0.5) { gl_FragColor = vec4(0.0,0.0,0.0,1.0); return; }
-
     float TWO_PI = 6.28318530718;
     float sector = TWO_PI / uSectors;
     float ang = atan(p.y, p.x);
     float k = floor(ang / sector);
     float a = mod(ang, sector);
     if (mod(k, 2.0) > 0.5) a = sector - a;
-
     float r = length(p);
     vec2 dir = vec2(cos(a), sin(a));
-
     float phase = k * 2.618;
     float spin  = 0.12 * sin(uTime*0.6 + phase);
     vec2  d     = rot(spin) * (dir * r);
     float breathe = 1.0 + 0.18*sin(uTime*0.8 + 0.7*phase);
     vec2 t = d * breathe + 0.5;
-
     vec2 slide = 0.06 * vec2(cos(uTime*0.5 + phase), sin(uTime*0.7 + 1.3*phase));
     t += slide;
-
     vec3 col = (uHasTex>0.5) ? texture2D(uTex, mirror(t)).rgb
                              : vec3(0.25+0.25*sin(10.0*t.x), 0.25+0.25*sin(10.0*t.y), 0.3);
-    gl.FragColor = vec4(col,1.0);
-  }`.replace('gl.FragColor','gl_FragColor'); // Safari対策
+    gl_FragColor = vec4(col,1.0);
+  }`;
 
-  function sh(tp,src){
-    const s=gl.createShader(tp); gl.shaderSource(s,src); gl.compileShader(s);
-    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error('Shader compile: '+gl.getShaderInfoLog(s));
-    return s;
-  }
+  function sh(tp,src){ const s=gl.createShader(tp); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error('Shader compile: '+gl.getShaderInfoLog(s)); return s; }
   const vsObj=sh(gl.VERTEX_SHADER,vs), fsObj=sh(gl.FRAGMENT_SHADER,fs);
   prog=gl.createProgram(); gl.attachShader(prog,vsObj); gl.attachShader(prog,fsObj); gl.linkProgram(prog);
   if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error('Program link: '+gl.getProgramInfoLog(prog));
@@ -185,20 +169,19 @@ function makeTextureFromImage(img){
     gl.bindTexture(gl.TEXTURE_2D,tex);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,img);
-
-    // ★ ここを REPEAT → CLAMP_TO_EDGE に修正（NPOT対応）
+    // NPOT対応：CLAMP_TO_EDGE
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-
     gl.uniform1f(prog.uHasTex,1.0);
     log('✅ 画像ロード完了（WebGLテクスチャOK）');
   }catch(e){
-    img2D = img; log('⚠ WebGLテクスチャ失敗 → 2D描画にフォールバック: '+e.message);
+    img2D = img; log('⚠ WebGLテクスチャ失敗 → 2D描画: '+e.message);
   }
 }
 
+let start=performance.now();
 function render(){
   const t=(performance.now()-start)/1000;
   if(gl){
@@ -234,7 +217,7 @@ document.getElementById('img').addEventListener('change', (e)=>{
   const url = URL.createObjectURL(f);
   const img = new Image();
   img.onload = ()=>{ makeTextureFromImage(img); URL.revokeObjectURL(url); };
-  img.onerror = (ev)=>{ log('❌ 画像を読み込めませんでした: '+(ev?.message||'')); };
+  img.onerror = (ev)=>{ log('❌ 画像を読み込めませんでした'); };
   img.src = url;
 });
 let dragDepth = 0;
@@ -248,12 +231,12 @@ addEventListener('drop', e=>{
     const url = URL.createObjectURL(f);
     const img = new Image();
     img.onload = ()=>{ makeTextureFromImage(img); URL.revokeObjectURL(url); };
-    img.onerror = (ev)=>{ log('❌ 画像を読み込めませんでした: '+(ev?.message||'')); };
+    img.onerror = ()=>{ log('❌ 画像を読み込めませんでした'); };
     img.src = url;
   }else{ log('ℹ 画像ファイルをドロップしてください'); }
 });
 
-/* ===== オーディオ（チャイム & 音楽） ===== */
+/* ===== オーディオ ===== */
 const chimeEl = document.getElementById('chime');
 const player  = document.getElementById('player');
 let audioEnabled = false;
@@ -263,7 +246,6 @@ async function enableAudioSensors(){
     if (typeof DeviceMotionEvent!=='undefined' && typeof DeviceMotionEvent.requestPermission==='function'){
       try{ await DeviceMotionEvent.requestPermission(); }catch(e){}
     }
-    // iOS オーディオアンロック
     try{ await chimeEl.play(); chimeEl.pause(); chimeEl.currentTime = 0; }catch(e){}
     audioEnabled = true;
     append('🔊 音が有効になりました（タップ/シェイクでチャイム）');
@@ -275,11 +257,9 @@ function tryPlay(el, label){
   el.play().then(()=>{ append('▶ ' + label + ' 再生開始'); })
     .catch(err=>{ append('⛔ ' + label + ' 再生失敗: ' + err.message + '\\n（画面を一度タップ/「音を有効化」を押してから）'); });
 }
-
 function playChime(){
   if(!audioEnabled){ append('⛔ 先に「センサーと音を有効化」を押してください'); return; }
-  chimeEl.currentTime = 0;
-  tryPlay(chimeEl, 'チャイム');
+  chimeEl.currentTime = 0; tryPlay(chimeEl, 'チャイム');
 }
 canvas.addEventListener('pointerdown', playChime);
 let lastA={x:0,y:0,z:0}, lastT=0;
@@ -290,29 +270,27 @@ addEventListener('devicemotion',(e)=>{
   if(mag>18 && t-lastT>600){ lastT=t; playChime(); }
 },{passive:true});
 
-/* 音楽選択 → チャイム音源にも反映。選択直後、自動再生トライ */
 document.getElementById('music').addEventListener('change', e=>{
   const f = e.target.files && e.target.files[0];
   if(!f){ append('音源未選択'); return; }
   const url = URL.createObjectURL(f);
   player.src = url;
-  chimeEl.src = url; // チャイムもこの音源を使用
+  chimeEl.src = url; // チャイムもこの音源に
   player.onloadedmetadata = ()=>{
     append('🎵 音源読み込み完了：' + (f.name||'audio'));
     if(audioEnabled){ tryPlay(player, '音楽'); }
     else { append('（先に「センサーと音を有効化」を押すと自動再生できます）'); }
   };
-  player.onerror = (e)=>{ append('❌ 音源エラー: ' + (player.error?.message||'unknown')); };
+  player.onerror = ()=>{ append('❌ 音源エラー'); };
 });
 
-/* 再生/一時停止ボタン */
-document.getElementById('play').onclick = ()=>{
+document.getElementById('play').onclick = function(){
   if(!player.src){ append('ℹ 先に音楽ファイルを選択してください'); return; }
   if(player.paused){ tryPlay(player, '音楽'); this.textContent='⏸ 一時停止'; }
   else { player.pause(); append('⏸ 一時停止'); this.textContent='▶︎ 再生/一時停止'; }
 };
 
-/* セグメント数 */
+/* ===== セグメント数 ===== */
 document.getElementById('seg').addEventListener('input', e=>{
   const v = parseFloat(e.target.value);
   if(gl) gl.uniform1f(prog.uSectors, v);
