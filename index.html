@@ -1,30 +1,29 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-  <title>万華鏡（正方形・放射状）PWA</title>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>万華鏡（正方形×放射・格子ミラー）</title>
 
-  <!-- PWA -->
-  <link rel="manifest" href="./manifest.json?v=1">
-  <meta name="theme-color" content="#111318">
-  <link rel="icon" href="./icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="manifest" href="./manifest.json?v=2">
+<meta name="theme-color" content="#111318">
+<link rel="icon" href="./icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icon-192.png">
 
-  <style>
-    :root{--bg:#0b0d11;--fg:#d7e4ff;--muted:#86a2c9}
-    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-    #app{position:fixed;inset:0;display:grid;grid-template-rows:1fr auto}
-    canvas{width:100%;height:100%;background:#000;display:block}
-    .bar{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;justify-content:center;padding:.7rem;background:linear-gradient(180deg, rgba(14,18,24,.6), rgba(14,18,24,.95));backdrop-filter:blur(6px);border-top:1px solid #1e2733}
-    .btn{background:#0f1a27;border:1px solid #263244;color:var(--fg);padding:.55rem .8rem;border-radius:.8rem;cursor:pointer}
-    .btn:active{transform:translateY(1px)}
-    .pill{font-size:.9rem;color:var(--muted)}
-    .status{position:fixed;left:.6rem;top:.3rem;color:#9cc3ff;font-family:ui-monospace,Consolas,monospace;font-size:.85rem;opacity:.9;max-width:90vw;white-space:pre-wrap}
-    input[type=file]{display:none}
-    label.file{cursor:pointer}
-    .toggle{display:inline-flex;align-items:center;gap:.35rem}
-  </style>
+<style>
+  :root{--bg:#0b0d11;--fg:#d7e4ff;--muted:#86a2c9}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  #app{position:fixed;inset:0;display:grid;grid-template-rows:1fr auto}
+  canvas{width:100%;height:100%;background:#000;display:block}
+  .bar{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;justify-content:center;padding:.7rem;background:linear-gradient(180deg, rgba(14,18,24,.6), rgba(14,18,24,.95));backdrop-filter:blur(6px);border-top:1px solid #1e2733}
+  .btn{background:#0f1a27;border:1px solid #263244;color:var(--fg);padding:.55rem .8rem;border-radius:.8rem;cursor:pointer}
+  .btn:active{transform:translateY(1px)}
+  .pill{font-size:.9rem;color:var(--muted)}
+  .status{position:fixed;left:.6rem;top:.3rem;color:#9cc3ff;font-family:ui-monospace,Consolas,monospace;font-size:.85rem;opacity:.9;max-width:92vw;white-space:pre-wrap}
+  input[type=file]{display:none}
+  label.file{cursor:pointer}
+  .group{display:inline-flex;align-items:center;gap:.35rem}
+</style>
 </head>
 <body>
 <div id="app">
@@ -36,19 +35,23 @@
     <button id="testImgBtn" class="btn">🧪 テスト画像</button>
     <button id="clearImg" class="btn">画像クリア</button>
 
-    <span class="pill">（ドラッグ&ドロップでも読み込み可）</span>
+    <span class="pill">(ドラッグ&ドロップでも読み込み可)</span>
 
-    <input id="audFile" type="file" accept="audio/*">
-    <label for="audFile" class="btn file">🎵 音楽ファイル</label>
-    <button id="playBtn" class="btn">▶ 再生/一時停止</button>
+    <input id="chimeFile" type="file" accept="audio/*">
+    <label for="chimeFile" class="btn file">🔔 チャイム音源</label>
 
-    <button id="enableBtn" class="btn">🔔 センサーと音を有効化</button>
-
-    <span class="toggle">
+    <div class="group">
       <label>セグメント</label>
-      <input id="segs" type="range" min="6" max="48" value="24">
-      <span id="segsV">24</span>
-    </span>
+      <input id="segs" type="range" min="6" max="72" value="24"><span id="segsV">24</span>
+    </div>
+    <div class="group">
+      <label>列</label><input id="cols" type="range" min="1" max="6" value="2"><span id="colsV">2</span>
+    </div>
+    <div class="group">
+      <label>行</label><input id="rows" type="range" min="1" max="6" value="2"><span id="rowsV">2</span>
+    </div>
+
+    <button id="enableBtn" class="btn">📱 センサー＆Audio有効化</button>
   </div>
 </div>
 
@@ -59,7 +62,7 @@
 (function(){
   const isLocalhost = ['localhost','127.0.0.1'].includes(location.hostname);
   if ('serviceWorker' in navigator && (isLocalhost || location.protocol==='https:')) {
-    navigator.serviceWorker.register('./sw.js?v=7').catch(e=>{
+    navigator.serviceWorker.register('./sw.js?v=8').catch(e=>{
       console.warn('SW register failed:', e);
       const s=document.getElementById('status'); if(s) s.textContent='SW登録失敗: '+e;
     });
@@ -68,130 +71,22 @@
   }
 })();
 
-/* ===== Canvas Kaleidoscope (square frame, radial mirror) ===== */
+/* ===== Common state ===== */
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
+const statusEl = document.getElementById('status');
+
 let img = null;
 let angle = 0;
 let segments = 24;
-let scale = 1.0;
+let gridCols = 2;
+let gridRows = 2;
+let zoomBase = 1.0;
+let t0 = performance.now();
 
-function drawKaleido(){
-  const w = cv.width, h = cv.height;
-  ctx.clearRect(0,0,w,h);
-  ctx.save();
-  // 正方形フレーム（端まで描画）
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0,0,w,h);
-
-  if (img){
-    const cx = w/2, cy = h/2;
-    const radius = Math.max(w,h)*0.8;
-    const slice = (Math.PI*2)/segments;
-
-    for(let i=0;i<segments;i++){
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(i*slice + angle);
-
-      // 三角扇形クリップ
-      ctx.beginPath();
-      ctx.moveTo(0,0);
-      ctx.lineTo(radius, -radius*Math.tan(slice/2));
-      ctx.lineTo(radius,  radius*Math.tan(slice/2));
-      ctx.closePath();
-      ctx.clip();
-
-      // 偶数枚をミラー反転
-      const flip = (i%2===1) ? -1 : 1;
-      ctx.scale(flip*scale, scale);
-
-      // 画像をカバー配置（中央寄せ）
-      const iw = img.width, ih = img.height;
-      const s = Math.max(w/iw, h/ih);
-      ctx.drawImage(img, -iw*s/2, -ih*s/2, iw*s, ih*s);
-
-      ctx.restore();
-    }
-  }
-
-  ctx.restore();
-  angle += 0.0025; // ゆっくり回転
-  requestAnimationFrame(drawKaleido);
-}
-requestAnimationFrame(drawKaleido);
-
-/* ===== 内蔵テスト画像（SVG生成 → data URL）===== */
-function loadBuiltInTestImage(){
-  const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-    <defs>
-      <radialGradient id="g" cx="50%" cy="50%" r="70%">
-        <stop offset="0%" stop-color="#ffffff"/>
-        <stop offset="40%" stop-color="#ffd266"/>
-        <stop offset="70%" stop-color="#ff6ea8"/>
-        <stop offset="100%" stop-color="#3aa0ff"/>
-      </radialGradient>
-      <pattern id="p" width="64" height="64" patternUnits="userSpaceOnUse">
-        <rect width="64" height="64" fill="url(#g)"/>
-        <circle cx="32" cy="32" r="12" fill="rgba(0,0,0,0.15)"/>
-      </pattern>
-    </defs>
-    <rect width="1024" height="1024" fill="url(#p)"/>
-    <!-- 放射状の線 -->
-    <g stroke="rgba(0,0,0,0.3)" stroke-width="2">
-      ${Array.from({length:72}).map((_,i)=>`<line x1="512" y1="512" x2="${512+520*Math.cos(i*5*Math.PI/180)}" y2="${512+520*Math.sin(i*5*Math.PI/180)}"/>`).join('')}
-    </g>
-  </svg>`;
-  const url = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
-  const im = new Image();
-  im.onload = ()=>{ img = im; };
-  im.src = url;
-}
-
-/* ===== 画像読み込み（ファイル/ドラッグ&ドロップ/内蔵テスト）===== */
-function loadImageFromFile(file){
-  if(!file) return;
-  const url = URL.createObjectURL(file);
-  const im = new Image();
-  im.onload = ()=>{ img = im; URL.revokeObjectURL(url); };
-  im.src = url;
-}
-document.getElementById('imgFile').addEventListener('change', e=>{
-  loadImageFromFile(e.target.files[0]);
-});
-['dragenter','dragover'].forEach(t=>{
-  cv.addEventListener(t, e=>{e.preventDefault();});
-});
-cv.addEventListener('drop', e=>{
-  e.preventDefault();
-  const f = e.dataTransfer.files && e.dataTransfer.files[0];
-  if (f && f.type.startsWith('image/')) loadImageFromFile(f);
-});
-document.getElementById('testImgBtn').addEventListener('click', loadBuiltInTestImage);
-document.getElementById('clearImg').addEventListener('click', ()=>{ img = null; });
-
-/* ===== セグメント調整 ===== */
-const segs = document.getElementById('segs');
-const segsV = document.getElementById('segsV');
-segs.addEventListener('input', ()=>{
-  segments = parseInt(segs.value,10);
-  segsV.textContent = segments;
-});
-
-/* ===== Audio / Chime / Sensors ===== */
-const statusEl = document.getElementById('status');
-const audInput = document.getElementById('audFile');
-const playBtn = document.getElementById('playBtn');
-let audio = new Audio();
+/* ===== Audio / Chime ===== */
 let audioCtx = null;
-audio.loop = false;
-
-audInput.addEventListener('change', e=>{
-  const f = e.target.files[0];
-  if (!f) return;
-  audio.src = URL.createObjectURL(f);
-});
+let chimeURL = null;
 
 async function ensureAudioCtx(){
   if (!audioCtx) {
@@ -201,17 +96,8 @@ async function ensureAudioCtx(){
   if (audioCtx.state === 'suspended') await audioCtx.resume();
 }
 
-playBtn.addEventListener('click', async ()=>{
-  try {
-    await ensureAudioCtx();
-    if (audio.paused) { await audio.play(); }
-    else { audio.pause(); }
-  } catch (e) { statusEl.textContent = '再生失敗: ' + e; }
-});
-
-/* ---- チャイム（タップ & 端末を振る）---- */
-function playChime(freq=880, dur=0.28){
-  if (!audioCtx) return; // ユーザー操作後のみ有効
+function playChimeFallback(freq=880, dur=0.28){
+  if (!audioCtx) return;
   const o = audioCtx.createOscillator();
   const g = audioCtx.createGain();
   o.type = 'sine';
@@ -221,16 +107,27 @@ function playChime(freq=880, dur=0.28){
   const t = audioCtx.currentTime;
   g.gain.linearRampToValueAtTime(0.25, t + 0.01);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.start(t);
-  o.stop(t + dur + 0.02);
+  o.start(t); o.stop(t + dur + 0.02);
 }
 
-// タップで必ず解錠＆チャイム
-document.body.addEventListener('click', ()=>{
-  ensureAudioCtx().then(()=>playChime());
+function clickChime(){
+  ensureAudioCtx().then(()=>{
+    if (chimeURL){
+      const a = new Audio(chimeURL);
+      a.play().catch(()=>{}); // iOS等で失敗しても無視
+    } else {
+      playChimeFallback();
+    }
+  });
+}
+document.body.addEventListener('click', clickChime);
+
+document.getElementById('chimeFile').addEventListener('change', e=>{
+  const f = e.target.files[0];
+  if (f) chimeURL = URL.createObjectURL(f);
 });
 
-// センサー有効化（iOS許可→devicemotion）
+/* ===== Sensors (optional) ===== */
 document.getElementById('enableBtn').addEventListener('click', async ()=>{
   try {
     await ensureAudioCtx();
@@ -238,33 +135,73 @@ document.getElementById('enableBtn').addEventListener('click', async ()=>{
       const res = await DeviceMotionEvent.requestPermission();
       if (res !== 'granted') { statusEl.textContent = 'センサー権限が拒否されました'; return; }
     }
-    window.addEventListener('devicemotion', onMotion, {passive:true});
-    statusEl.textContent = 'センサーと音を有効化しました（強く振るとチャイム）';
-    playChime(990, 0.22);
+    window.addEventListener('devicemotion', e=>{
+      // 加速度に応じて軽く回転スピードを変える
+      const a = e.accelerationIncludingGravity;
+      if (!a) return;
+      const mag = Math.hypot(a.x||0,a.y||0,a.z||0);
+      angle += (mag-9.8)*0.0002;
+    }, {passive:true});
+    statusEl.textContent = 'センサーと音を有効化しました（タップでチャイム／振ると回転が揺れます）';
+    playChimeFallback(990,0.18);
   } catch (e) {
     statusEl.textContent = '有効化エラー: ' + e;
   }
 });
 
-// シェイク検出でチャイム
-let lastShakeAt = 0;
-function onMotion(e){
-  const a = e.accelerationIncludingGravity;
-  if (!a) return;
-  const mag = Math.hypot(a.x||0,a.y||0,a.z||0);
-  const now = performance.now();
-  if (mag > 22 && (now - lastShakeAt) > 600) {
-    lastShakeAt = now;
-    playChime(880 + Math.random()*120, 0.25 + Math.random()*0.07);
-    // 回転に少しランダム変化
-    angle += (Math.random() - 0.5) * 0.5;
-  }
+/* ===== Built-in test image ===== */
+function loadBuiltInTestImage(){
+  const svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#fff"/>
+        <stop offset="50%" stop-color="#f7b65a"/>
+        <stop offset="100%" stop-color="#3aa0ff"/>
+      </linearGradient>
+      <pattern id="p" width="64" height="64" patternUnits="userSpaceOnUse">
+        <rect width="64" height="64" fill="url(#g)"/>
+        <path d="M0 32 H64 M32 0 V64" stroke="rgba(0,0,0,.18)" stroke-width="2"/>
+      </pattern>
+    </defs>
+    <rect width="1024" height="1024" fill="url(#p)"/>
+  </svg>`;
+  const url = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+  const im = new Image();
+  im.onload = ()=>{ img = im; };
+  im.src = url;
 }
 
-/* ===== 正方形で高精細にリサイズ ===== */
+/* ===== Image loading (file / D&D / built-in) ===== */
+function loadImageFromFile(file){
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  const im = new Image();
+  im.onload = ()=>{ img = im; URL.revokeObjectURL(url); };
+  im.src = url;
+}
+document.getElementById('imgFile').addEventListener('change', e=>loadImageFromFile(e.target.files[0]));
+['dragenter','dragover'].forEach(t=>cv.addEventListener(t, e=>e.preventDefault()));
+cv.addEventListener('drop', e=>{
+  e.preventDefault();
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) loadImageFromFile(f);
+});
+document.getElementById('testImgBtn').addEventListener('click', loadBuiltInTestImage);
+document.getElementById('clearImg').addEventListener('click', ()=>{ img = null; });
+
+/* ===== Controls ===== */
+const segs = document.getElementById('segs'), segsV=document.getElementById('segsV');
+const cols = document.getElementById('cols'), colsV=document.getElementById('colsV');
+const rows = document.getElementById('rows'), rowsV=document.getElementById('rowsV');
+segs.addEventListener('input', ()=>{ segments=+segs.value; segsV.textContent=segments; });
+cols.addEventListener('input', ()=>{ gridCols=+cols.value; colsV.textContent=gridCols; });
+rows.addEventListener('input', ()=>{ gridRows=+rows.value; rowsV.textContent=gridRows; });
+
+/* ===== Square canvas fitting ===== */
 function fitCanvas(){
   const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
-  const size = Math.min(window.innerWidth, window.innerHeight-72);
+  const size = Math.min(window.innerWidth, window.innerHeight-80);
   cv.style.width = cv.style.height = size + 'px';
   cv.width = Math.floor(size * dpr);
   cv.height = Math.floor(size * dpr);
@@ -272,8 +209,83 @@ function fitCanvas(){
 }
 addEventListener('resize', fitCanvas); fitCanvas();
 
-/* ===== 起動時に内蔵テスト画像を自動ロード ===== */
+/* ===== Kaleidoscope drawing ===== */
+function drawCell(cellW, cellH, time){
+  if (!img) return;
+
+  // 画像のゆっくりドリフト＆ズーム
+  const driftX = Math.sin(time*0.00023)*0.18;   // -0.18〜0.18
+  const driftY = Math.cos(time*0.00019)*0.18;
+  const zoom   = 1.0 + 0.08*Math.sin(time*0.00011);
+
+  const radius = Math.hypot(cellW, cellH)*0.75;
+  const slice = (Math.PI*2)/segments;
+
+  for(let i=0;i<segments;i++){
+    ctx.save();
+    // 中心から回転
+    ctx.rotate(i*slice + angle);
+
+    // 三角扇形クリップ（円形マスクは無し＝正方形に広がる）
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(radius, -radius*Math.tan(slice/2));
+    ctx.lineTo(radius,  radius*Math.tan(slice/2));
+    ctx.closePath();
+    ctx.clip();
+
+    // 偶数番をミラー
+    const flip = (i%2===1) ? -1 : 1;
+    ctx.scale(flip*zoom, zoom);
+
+    // 画像をカバー配置（ドリフト込み）
+    const iw = img.width, ih = img.height;
+    const s = Math.max(cellW/iw, cellH/ih)*1.1; // 余裕を持たせる
+    const dx = (-iw*s/2) + driftX*cellW;
+    const dy = (-ih*s/2) + driftY*cellH;
+    ctx.drawImage(img, dx, dy, iw*s, ih*s);
+
+    ctx.restore();
+  }
+}
+
+function render(now){
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0,0,w,h);
+
+  const time = performance.now();
+  const cellW = w / gridCols;
+  const cellH = h / gridRows;
+
+  // 黒ベース（円マスクは使わない＝四角い端まで模様）
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0,0,w,h);
+
+  for(let ry=0; ry<gridRows; ry++){
+    for(let cx_ = 0; cx_ < gridCols; cx_++){
+      const sx = (cx_ % 2 === 1) ? -1 : 1; // 横ミラー
+      const sy = (ry  % 2 === 1) ? -1 : 1; // 縦ミラー
+
+      ctx.save();
+      // 各セルの中心へ
+      const cx = cx_*cellW + cellW/2;
+      const cy = ry*cellH + cellH/2;
+      ctx.translate(cx, cy);
+      ctx.scale(sx, sy);
+
+      drawCell(cellW, cellH, time);
+      ctx.restore();
+    }
+  }
+
+  // セグメントが多いと自動で少し遅く
+  const speed = 0.0025 * (24/Math.max(12, segments));
+  angle += speed;
+
+  requestAnimationFrame(render);
+}
 loadBuiltInTestImage();
+requestAnimationFrame(render);
 </script>
 </body>
 </html>
