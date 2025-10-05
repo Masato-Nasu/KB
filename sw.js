@@ -1,5 +1,5 @@
-// sw.js v1 for BabyShapes
-const CACHE='baby-shapes-v1';
+// sw.js v1 for Baby Shapes Neon
+const CACHE='baby-shapes-neon-v1';
 const ASSETS=[
   './',
   './index.html?v=1',

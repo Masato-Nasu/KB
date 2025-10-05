@@ -1,10 +1,10 @@
 {
-  "name": "Baby Shapes",
-  "short_name": "BabyShapes",
+  "name": "Baby Shapes Neon",
+  "short_name": "BabyShapesNeon",
   "start_url": "./index.html?v=1",
   "display": "standalone",
-  "background_color": "#FFF8E7",
-  "theme_color": "#FFF8E7",
+  "background_color": "#0B0C10",
+  "theme_color": "#0B0C10",
   "icons": [
     {
       "src": "icon-192.png",
