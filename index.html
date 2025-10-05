@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <title>Square Radiant Player v2</title>
-<link rel="manifest" href="./manifest.json?v=15">
+<link rel="manifest" href="./manifest.json?v=16">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -120,12 +120,38 @@
   const chime = new Audio("./Chime.mp3");
   chime.volume = 0.5;
 
-  stage.addEventListener('click', ()=>{
+  // --- クリック時（既存） + iOSのセンサー許可リクエストをここで実施 ---
+  stage.addEventListener('click', async ()=>{
+    try {
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        // iOS Safari: ユーザー操作内で許可リクエスト
+        await DeviceMotionEvent.requestPermission().catch(()=>{});
+      }
+    } catch(e){}
     chime.currentTime = 0;
     chime.play();
     cv.classList.add('flash');
     setTimeout(()=>cv.classList.remove('flash'),600);
   });
+
+  // --- 端末の衝撃（シェイク）でフラッシュ＆チャイム ---
+  if (window.DeviceMotionEvent) {
+    let lastShake = 0;
+    window.addEventListener("devicemotion", (e) => {
+      const acc = e.accelerationIncludingGravity;
+      if (!acc) return;
+      const x = acc.x || 0, y = acc.y || 0, z = acc.z || 0;
+      const strength = Math.sqrt(x*x + y*y + z*z);
+      // 閾値: 18。連続発火防止のため1秒クールダウン
+      if (strength > 18 && Date.now() - lastShake > 1000) {
+        lastShake = Date.now();
+        chime.currentTime = 0;
+        chime.play();
+        cv.classList.add("flash");
+        setTimeout(() => cv.classList.remove("flash"), 600);
+      }
+    }, { passive: true });
+  }
 
   function fit(){
     const s = Math.min(window.innerWidth, window.innerHeight)-40;
@@ -202,7 +228,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=15");
+  navigator.serviceWorker.register("./sw.js?v=16");
 }
 </script>
 </body>
