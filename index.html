@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v6</title>
-<link rel="manifest" href="./manifest.json?v=20">
+<title>Square Radiant Player v7</title>
+<link rel="manifest" href="./manifest.json?v=21">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -44,7 +44,7 @@
     <button id="play" class="btn">▶ / ❚❚</button>
     <button id="next" class="btn">次 →</button>
   </div>
-  <div class="muted">v20: 黒スリット完全対策（3pxブリード＋2〜4%オーバーラップ）、動的軽量化（FPSを見て自動調整）</div>
+  <div class="muted">v21: 円形クリッピング導入（出力は円形）。フィル領域は対角の130%をオーバースキャンして黒を排除。</div>
 </div>
 
 <script>
@@ -54,21 +54,21 @@
   ctx.imageSmoothingEnabled = true;
   const stage = document.getElementById('stage');
 
-  // パラメータ（重い→軽く自動調整）
-  const baseSEGS = 80, baseN = 24;
-  let SEGS = baseSEGS, N = baseN;
-  const bleed = 3;          // px: 継ぎ目を覆うための外側描画
-  const overlap = 0.04;     // 2〜4%: タイル同士を少し重ねる
-  const dprCap = 1.2;       // 高DPR端末の内部描画倍率上限
-  const scaleCrop = 1.05;   // 画像を少し拡大して端の黒を避ける
+  // パラメータ
+  let SEGS = 72, N = 22;
+  const bleed = 4;          // px
+  const overlap = 0.05;     // 5%
+  const dprCap = 1.2;
+  const scaleCrop = 1.05;   // 入力画像の余白回避
+  const FILL_OVERSCAN = 1.3; // フィル領域（内部描画）の直径=対角*1.3
+  const OUT_DIAM_RATIO = 0.9; // 出力円の直径=対角*0.9（見せる円の大きさ）
 
-  // デバイス情報で初期ダウングレード
+  // デバイスに応じて軽量化
   const cores = navigator.hardwareConcurrency || 4;
   const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
   if (isMobile) { SEGS = 56; N = 18; }
-  if (cores <= 4) { SEGS = Math.min(SEGS, 64); N = Math.min(N, 20); }
 
-  // 画像を中央正方形にトリミング & 1.05x拡大
+  // 画像を中央正方形トリミング & 1.05x拡大
   async function prepareImageBitmap(img){
     const s = Math.min(img.width, img.height);
     const sx = (img.width - s)/2;
@@ -139,13 +139,8 @@
   });
 
   const chime = new Audio("./Chime.mp3"); chime.volume = 0.5;
-
   stage.addEventListener('click', async ()=>{
-    try {
-      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-        await DeviceMotionEvent.requestPermission().catch(()=>{});
-      }
-    } catch(e){}
+    try { if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') { await DeviceMotionEvent.requestPermission().catch(()=>{}); } } catch(e){}
     chime.currentTime = 0; chime.play();
     cv.classList.add('flash'); setTimeout(()=>cv.classList.remove('flash'),500);
   });
@@ -172,36 +167,22 @@
   }
   window.addEventListener('resize',fit,{passive:true}); fit();
 
-  // 動的軽量化：平均フレーム時間が重ければ SEGS/N を自動で落とす
-  let last = performance.now(), accum = 0, count = 0;
-  function maybeAutoTune(dt){
-    accum += dt; count++;
-    if (count >= 120) {           // 約2秒ごとに判定
-      const avg = accum / count;  // ms
-      if (avg > 22) {             // <~45fpsなら軽量化
-        if (SEGS > 40) SEGS -= 8;
-        if (N > 12) N -= 2;
-      }
-      accum = 0; count = 0;
-    }
-  }
-
-  let t=0;
+  let t=0, last=performance.now();
   function draw(now){
-    const dt = now - last; last = now; maybeAutoTune(dt);
-
     const w=cv.width,h=cv.height;
     ctx.clearRect(0,0,w,h);
     ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
 
     if(currentImage){
       const slice=(Math.PI*2)/SEGS;
-      const plateSide=Math.min(w,h)*1.8;
-      const half=plateSide/2;
+      const diag = Math.hypot(w,h);
+      const fillRadius = (diag * FILL_OVERSCAN)/2;   // 内部描画の到達半径（対角130%）
+      const half = fillRadius;                       // 描画の基準サイズをこの半径で
+      const plateSide = half*2;
       const step=plateSide/N;
       const uStep=currentImage.width/N;
       const vStep=currentImage.height/N;
-      const wedgeR=Math.hypot(half,half)*1.1;
+      const wedgeR=fillRadius*1.02; // さらに少し余裕
 
       ctx.save();
       ctx.translate(w/2,h/2);
@@ -209,10 +190,11 @@
 
       for(let i=0;i<SEGS;i++){
         ctx.save();
-        ctx.rotate(i*slice);
+        // 角度を1%重なりで描画して放射状の欠けを防止
+        ctx.rotate(i*slice - slice*0.01);
         ctx.beginPath();
         ctx.moveTo(0,0);
-        const dy=wedgeR*Math.tan(slice/2);
+        const dy=wedgeR*Math.tan(slice/2 * 1.02); // 幅も少し広げる
         ctx.lineTo(wedgeR,-dy);
         ctx.lineTo(wedgeR,dy);
         ctx.closePath();
@@ -233,16 +215,13 @@
 
             const wDest = step * (1 + overlap);
             const hDest = step * (1 + overlap);
-            const offset = step * overlap / 2;
 
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(localAngle);
-            ctx.drawImage(
-              currentImage, sx, sy, uStep, vStep,
+            ctx.drawImage(currentImage, sx, sy, uStep, vStep,
               -wDest/2 - bleed, -hDest/2 - bleed,
-              wDest + bleed*2, hDest + bleed*2
-            );
+              wDest + bleed*2, hDest + bleed*2);
             ctx.restore();
           }
         }
@@ -250,25 +229,25 @@
       }
       ctx.restore();
 
-      // 正方形マスク
-      const side=Math.min(w,h)*0.8;
+      // ==== 円形クリッピング（出力）====
+      const outRadius = (Math.hypot(w,h) * OUT_DIAM_RATIO)/2;
       ctx.save();
       ctx.globalCompositeOperation="destination-in";
       ctx.beginPath();
-      ctx.rect((w-side)/2,(h-side)/2,side,side);
+      ctx.arc(w/2, h/2, outRadius, 0, Math.PI*2);
       ctx.fill();
       ctx.restore();
     }
 
     let boost=0;
-    if(analyser && playing){
+    if(actx && analyser && playing){
       analyser.getByteTimeDomainData(data);
       let sum=0; for(let i=0;i<data.length;i++){ const d=(data[i]-128)/128; sum+=d*d; }
-      const rms=Math.sqrt(sum/data.length);
-      boost=rms*0.008;
+      boost=Math.sqrt(sum/data.length)*0.008;
     }
 
-    t += 0.0022 + boost;
+    const dt = now - last; last = now;
+    t += (0.0022 + boost) * Math.min(2, dt/16.7); // dtで若干補正
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
@@ -276,7 +255,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=20");
+  navigator.serviceWorker.register("./sw.js?v=21");
 }
 </script>
 </body>
