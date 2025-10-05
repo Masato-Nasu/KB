@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>万華鏡 Final（N×N 分割 → 円形放射／枠は四角）</title>
+<title>万華鏡 Final（四角枠＋内部円形放射）</title>
 
-<link rel="manifest" href="./manifest.json?v=12">
+<link rel="manifest" href="./manifest.json?v=13">
 <meta name="theme-color" content="#111318">
 <link rel="icon" href="./icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -28,385 +28,86 @@
 </head>
 <body>
 <div id="app">
-  <canvas id="cv" width="1024" height="1024" aria-label="kaleidoscope canvas"></canvas>
+  <canvas id="cv" width="1024" height="1024"></canvas>
 
-  <div class="bar" id="ui">
-    <!-- 画像1枚 or フォルダ -->
+  <div class="bar">
     <input id="imgFile" type="file" accept="image/*">
     <label for="imgFile" class="btn file">📷 画像</label>
-
     <input id="dirPicker" type="file" webkitdirectory multiple accept="image/*">
     <label for="dirPicker" class="btn file">📁 フォルダ（画像）</label>
-
     <button id="prevBtn" class="btn">⟵ 前</button>
     <button id="nextBtn" class="btn">次 ⟶</button>
-
     <button id="testImgBtn" class="btn">🧪 テスト画像</button>
     <button id="clearImg" class="btn">画像クリア</button>
-    <span class="pill">(D&D可／←→で切替)</span>
 
-    <!-- 分割と放射 -->
     <div class="group">
       <label>分割 N×N</label>
-      <input id="gridN" type="range" min="1" max="32" value="12">
-      <span id="gridNV">12</span>
+      <input id="gridN" type="range" min="1" max="32" value="12"><span id="gridNV">12</span>
     </div>
     <div class="group">
       <label>放射セグメント</label>
-      <input id="segs" type="range" min="6" max="72" value="24">
-      <span id="segsV">24</span>
+      <input id="segs" type="range" min="6" max="72" value="24"><span id="segsV">24</span>
     </div>
 
-    <!-- 音楽（単曲） -->
     <input id="musicFile" type="file" accept="audio/*">
     <label for="musicFile" class="btn file">🎵 音楽ファイル</label>
     <button id="musicPlay" class="btn">▶ 再生/一時停止</button>
 
-    <!-- 音楽（フォルダ） -->
     <input id="musicDir" type="file" webkitdirectory multiple accept="audio/*">
     <label for="musicDir" class="btn file">📁 フォルダ（音楽）</label>
     <button id="prevTrack" class="btn">⟵ 前の曲</button>
     <button id="nextTrack" class="btn">次の曲 ⟶</button>
     <span id="trackInfo" class="pill"></span>
 
-    <!-- キャンバスクリックの挙動 -->
-    <label class="toggle">
-      <input type="checkbox" id="chimeOnCanvas"> 🔔キャンバスクリックでChime
-    </label>
+    <label class="toggle"><input type="checkbox" id="chimeOnCanvas"> 🔔クリックでChime</label>
   </div>
 </div>
 
 <pre class="status" id="status"></pre>
 
 <script>
-/* ===== PWA: Service Worker register (https/localhost only) ===== */
-(function(){
-  const isLocalhost = ['localhost','127.0.0.1'].includes(location.hostname);
-  if ('serviceWorker' in navigator && (isLocalhost || location.protocol==='https:')) {
-    navigator.serviceWorker.register('./sw.js?v=12').catch(e=>{
-      console.warn('SW register failed:', e);
-      const s=document.getElementById('status'); if(s) s.textContent='SW登録失敗: '+e;
-    });
-  } else {
-    const s=document.getElementById('status'); if(s) s.textContent='SW未登録: https/localhost でのみ有効（file:// 直開き不可）';
-  }
-})();
-
-/* ===== Elements & State ===== */
-const cv = document.getElementById('cv');
-const ctx = cv.getContext('2d');
-const statusEl = document.getElementById('status');
-
-let baseImg = null;          // 表示中の画像
-let fileList = [];           // 画像フォルダの一覧
-let fileIdx = -1;
-
-let patternCanvas = null;    // N×N 内部分割の合成用
-let patternCtx = null;
-
-let gridN = 12;              // N×N
-let segments = 24;           // 放射
-let angle = 0;
-
-/* ===== Audio（チャイム＆音楽） ===== */
-let audioCtx = null;
-const chimeAudio = new Audio('https://raw.githubusercontent.com/Masato-Nasu/KB/main/Chime.mp3'); // 指定のChime
-chimeAudio.preload = 'auto';
-const music = new Audio(); music.loop = false;
-
-async function ensureAudioCtx(){
-  if (!audioCtx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    audioCtx = new AC();
-  }
-  if (audioCtx.state === 'suspended') await audioCtx.resume();
-}
-function playBeep(freq=880, dur=0.18){
-  if (!audioCtx) return;
-  const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-  o.type='sine'; o.frequency.value=freq; g.gain.value=0;
-  o.connect(g).connect(audioCtx.destination);
-  const t=audioCtx.currentTime; g.gain.linearRampToValueAtTime(0.22,t+0.01);
-  g.gain.exponentialRampToValueAtTime(0.0001,t+dur); o.start(t); o.stop(t+dur+0.02);
-}
-
-/* ===== 画像ローディング（coverで黒帯なし） ===== */
-function computeCoverSrcRect(imgW, imgH, destW, destH, driftX=0, driftY=0, zoom=1.0){
-  const scale = Math.max(destW/imgW, destH/imgH) * zoom;
-  const viewW = destW/scale, viewH = destH/scale;
-  const maxX = Math.max(0, (imgW - viewW)/2);
-  const maxY = Math.max(0, (imgH - viewH)/2);
-  const sx = (imgW - viewW)/2 + Math.max(-maxX, Math.min(maxX, driftX*maxX));
-  const sy = (imgH - viewH)/2 + Math.max(-maxY, Math.min(maxY, driftY*maxY));
-  return {sx, sy, sw:viewW, sh:viewH};
-}
-
-/* ===== N×N 内部分割（交互ミラー） ===== */
-function rebuildPattern(){
-  if (!baseImg) return;
-  const w = cv.width, h = cv.height;
-  if (!patternCanvas){ patternCanvas=document.createElement('canvas'); patternCtx=patternCanvas.getContext('2d'); }
-  patternCanvas.width = w; patternCanvas.height = h;
-
-  // ドリフト＆ズーム（常に動く）
-  const t = performance.now();
-  const driftX = Math.sin(t*0.00023)*0.9, driftY = Math.cos(t*0.00019)*0.9;
-  const zoom   = 1.0 + 0.06*Math.sin(t*0.00011);
-
-  const src = computeCoverSrcRect(baseImg.width, baseImg.height, w, h, driftX, driftY, zoom);
-  const tileW = w / gridN, tileH = h / gridN;
-  const srcTileW = src.sw / gridN, srcTileH = src.sh / gridN;
-
-  patternCtx.clearRect(0,0,w,h);
-  for(let gy=0; gy<gridN; gy++){
-    for(let gx=0; gx<gridN; gx++){
-      const dx = gx*tileW, dy = gy*tileH;
-      const sxi = src.sx + gx*srcTileW, syi = src.sy + gy*srcTileH;
-      patternCtx.save();
-      patternCtx.translate(dx + tileW/2, dy + tileH/2);
-      const flipX = (gx % 2 === 1) ? -1 : 1;
-      const flipY = (gy % 2 === 1) ? -1 : 1;
-      patternCtx.scale(flipX, flipY);
-      patternCtx.drawImage(baseImg, sxi, syi, srcTileW, srcTileH, -tileW/2, -tileH/2, tileW, tileH);
-      patternCtx.restore();
-    }
-  }
-}
-
-/* ===== 放射描画（枠＝四角／内部＝円形で回転） ===== */
-function drawRadialFromPattern(){
-  const w = cv.width, h = cv.height;
-  ctx.clearRect(0,0,w,h);
-
-  // 四角い背景（枠は四角のまま）
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0,0,w,h);
-
-  if (!patternCanvas) return;
-
-  const cx = w/2, cy = h/2;
-  const slice = (Math.PI * 2) / segments;
-
-  // 内部は「正方形に内接する円」だけに描く
-  const R = Math.min(w, h) * 0.5;
-
-  ctx.save();
-  ctx.translate(cx, cy);
-
-  // 円クリップ：外側は絶対に描かれない
-  ctx.beginPath();
-  ctx.arc(0, 0, R, 0, Math.PI*2);
-  ctx.clip();
-
-  const wedgeR = R * 1.05;  // 円の内側に十分な長さ
-
-  for (let i = 0; i < segments; i++) {
-    ctx.save();
-    ctx.rotate(i * slice + angle);
-
-    // 扇（三角扇形）でさらにクリップ → 円∩扇
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(wedgeR, -wedgeR * Math.tan(slice/2));
-    ctx.lineTo(wedgeR,  wedgeR * Math.tan(slice/2));
-    ctx.closePath();
-    ctx.clip();
-
-    // 偶数番をミラー
-    const flip = (i % 2 === 1) ? -1 : 1;
-    ctx.scale(flip, 1);
-
-    // ソースは N×N に分割した patternCanvas
-    ctx.drawImage(patternCanvas, -w/2, -h/2, w, h);
-
-    ctx.restore();
-  }
-
-  ctx.restore();
-
-  // 回転
-  const speed = 0.0025 * (24 / Math.max(12, segments));
-  angle += speed;
-}
-
-/* ===== クリック時の可視フィードバック（パルス）＋任意チャイム ===== */
-let pulseT = 0;
-cv.addEventListener('click', async ()=>{
-  if (document.getElementById('chimeOnCanvas').checked){
-    try{ await ensureAudioCtx(); chimeAudio.currentTime=0; await chimeAudio.play().catch(()=>playBeep()); }catch{}
-  }
-  pulseT = performance.now();
-  if (navigator.vibrate) navigator.vibrate(10);
-});
-function drawPulse(){
-  if (!pulseT) return;
-  const elapsed = (performance.now()-pulseT)/400; // 0→1
-  if (elapsed>1){ pulseT=0; return; }
-  ctx.save();
-  ctx.globalCompositeOperation='screen';
-  ctx.globalAlpha = 1-elapsed;
-  const w=cv.width,h=cv.height;
-  const grd=ctx.createRadialGradient(w/2,h/2,0,w/2,h/2,Math.max(w,h)*0.6*elapsed);
-  grd.addColorStop(0,'rgba(255,255,255,0.35)');
-  grd.addColorStop(1,'rgba(255,255,255,0)');
-  ctx.fillStyle=grd;
-  ctx.fillRect(0,0,w,h);
-  ctx.restore();
-}
-
-/* ===== ループ ===== */
-function tick(){
-  if (baseImg) rebuildPattern();
-  drawRadialFromPattern();
-  drawPulse();
-  requestAnimationFrame(tick);
-}
-
-/* ===== 単枚画像・画像フォルダ ===== */
-function loadImageFromFile(file){
-  if(!file) return;
-  const url = URL.createObjectURL(file);
-  const im = new Image();
-  im.onload = ()=>{ baseImg = im; URL.revokeObjectURL(url); };
-  im.src = url;
-}
-document.getElementById('imgFile').addEventListener('change', e=>loadImageFromFile(e.target.files[0]));
-['dragenter','dragover'].forEach(t=>cv.addEventListener(t, e=>e.preventDefault()));
-cv.addEventListener('drop', e=>{
-  e.preventDefault();
-  const f = e.dataTransfer.files && e.dataTransfer.files[0];
-  if (f && f.type.startsWith('image/')) loadImageFromFile(f);
-});
-document.getElementById('clearImg').addEventListener('click', ()=>{ baseImg = null; patternCanvas = null; });
-
-const dirPicker = document.getElementById('dirPicker');
-const prevBtn = document.getElementById('prevBtn');
-const nextBtn = document.getElementById('nextBtn');
-const JA = new Intl.Collator('ja', { numeric:true, sensitivity:'base' });
-
-dirPicker.addEventListener('change', e=>{
-  fileList = Array.from(e.target.files).filter(f=>/^image\//.test(f.type));
-  fileList.sort((a,b)=>JA.compare(a.name,b.name)); // 数字昇順→50音順
-  fileIdx = -1;
-  nextImage();
-});
-function nextImage(){
-  if (!fileList.length) return;
-  fileIdx = (fileIdx+1)%fileList.length;
-  loadImageFromFile(fileList[fileIdx]);
-}
-function prevImage(){
-  if (!fileList.length) return;
-  fileIdx = (fileIdx-1+fileList.length)%fileList.length;
-  loadImageFromFile(fileList[fileIdx]);
-}
-nextBtn.addEventListener('click', nextImage);
-prevBtn.addEventListener('click', prevImage);
-window.addEventListener('keydown', e=>{
-  if (e.key==='ArrowRight') nextImage();
-  if (e.key==='ArrowLeft')  prevImage();
-});
-
-/* ===== 内蔵テスト画像 ===== */
-function loadBuiltInTestImage(){
-  const svg = `
-  <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-    <defs>
-      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#fff"/>
-        <stop offset="50%" stop-color="#f7b65a"/>
-        <stop offset="100%" stop-color="#3aa0ff"/>
-      </linearGradient>
-      <pattern id="p" width="64" height="64" patternUnits="userSpaceOnUse">
-        <rect width="64" height="64" fill="url(#g)"/>
-        <path d="M0 32 H64 M32 0 V64" stroke="rgba(0,0,0,.18)" stroke-width="2"/>
-      </pattern>
-    </defs>
-    <rect width="1024" height="1024" fill="url(#p)"/>
-  </svg>`;
-  const url = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
-  const im = new Image();
-  im.onload = ()=>{ baseImg = im; };
-  im.src = url;
-}
-document.getElementById('testImgBtn').addEventListener('click', loadBuiltInTestImage);
-
-/* ===== 単曲音楽 ===== */
-document.getElementById('musicFile').addEventListener('change', e=>{
-  const f = e.target.files[0];
-  if (!f) return;
-  music.src = URL.createObjectURL(f);
-});
-document.getElementById('musicPlay').addEventListener('click', async ()=>{
-  await ensureAudioCtx();
-  try{ if (music.paused) await music.play(); else music.pause(); }
-  catch(e){ statusEl.textContent = '音楽再生エラー: ' + e; }
-});
-
-/* ===== 音楽フォルダ（数字→50音） ===== */
-const musicDir = document.getElementById('musicDir');
-const prevTrackBtn = document.getElementById('prevTrack');
-const nextTrackBtn = document.getElementById('nextTrack');
-const trackInfo = document.getElementById('trackInfo');
-const collatorJA = new Intl.Collator('ja', { numeric:true, sensitivity:'base' });
-const AUDIO_OK = new Set(['.mp3','.m4a','.wav','.ogg','.aac','.flac']);
-
-let playlist = [];   // File[]
-let trackIdx = -1;
-
-function isAudioFile(name){
-  const i = name.lastIndexOf('.'); const ext = i>=0 ? name.slice(i).toLowerCase() : '';
-  return AUDIO_OK.has(ext);
-}
-function setTrackInfo(){
-  trackInfo.textContent = (trackIdx>=0 && playlist[trackIdx]) ? `${trackIdx+1}/${playlist.length}  ${playlist[trackIdx].name}` : '';
-}
-function loadTrack(i){
-  if (!playlist.length) return;
-  trackIdx = (i + playlist.length) % playlist.length;
-  const file = playlist[trackIdx];
-  music.src = URL.createObjectURL(file);
-  setTrackInfo();
-}
-async function playCurrent(){
-  try { await ensureAudioCtx(); await music.play(); } catch {}
-}
-function nextTrack(){ if (!playlist.length) return; loadTrack(trackIdx+1); playCurrent(); }
-function prevTrack(){ if (!playlist.length) return; loadTrack(trackIdx-1); playCurrent(); }
-
-musicDir.addEventListener('change', e=>{
-  const files = Array.from(e.target.files).filter(f=>isAudioFile(f.name));
-  files.sort((a,b)=>collatorJA.compare(a.name,b.name)); // 数字昇順→50音順
-  playlist = files;
-  if (playlist.length){ loadTrack(0); playCurrent(); } else { trackIdx=-1; setTrackInfo(); }
-});
-prevTrackBtn.addEventListener('click', prevTrack);
-nextTrackBtn.addEventListener('click', nextTrack);
-music.addEventListener('ended', nextTrack);
-window.addEventListener('keydown', e=>{
-  if (e.key==='ArrowRight') nextTrack();
-  if (e.key==='ArrowLeft')  prevTrack();
-});
-
-/* ===== スライダー & レイアウト ===== */
-const segs = document.getElementById('segs'), segsV=document.getElementById('segsV');
-const gridNInput = document.getElementById('gridN'), gridNV=document.getElementById('gridNV');
-segs.addEventListener('input', ()=>{ segments=+segs.value; segsV.textContent=segments; });
-gridNInput.addEventListener('input', ()=>{ gridN=+gridNInput.value; gridNV.textContent=gridN; });
-
-function fitCanvas(){
-  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
-  const size = Math.min(window.innerWidth, window.innerHeight-80);
-  cv.style.width = cv.style.height = size + 'px';
-  cv.width = Math.floor(size * dpr);
-  cv.height = Math.floor(size * dpr);
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-}
-addEventListener('resize', fitCanvas); fitCanvas();
-
-/* ===== Boot ===== */
-loadBuiltInTestImage();   // 起動時から絵が出る
-requestAnimationFrame(tick);
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');let baseImg=null,fileList=[],fileIdx=-1,patternCanvas=null,patternCtx=null,gridN=12,segments=24,angle=0;
+let audioCtx=null;const chimeAudio=new Audio('https://raw.githubusercontent.com/Masato-Nasu/KB/main/Chime.mp3');chimeAudio.preload='auto';const music=new Audio();music.loop=false;
+async function ensureAudioCtx(){if(!audioCtx){const AC=window.AudioContext||window.webkitAudioContext;audioCtx=new AC();}if(audioCtx.state==='suspended')await audioCtx.resume();}
+function playBeep(freq=880,dur=0.18){if(!audioCtx)return;const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.type='sine';o.frequency.value=freq;g.gain.value=0;o.connect(g).connect(audioCtx.destination);const t=audioCtx.currentTime;g.gain.linearRampToValueAtTime(0.22,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+dur);o.start(t);o.stop(t+dur+0.02);}
+function computeCoverSrcRect(iw,ih,dw,dh,dx=0,dy=0,z=1){const s=Math.max(dw/iw,dh/ih)*z,vw=dw/s,vh=dh/s,mx=Math.max(0,(iw-vw)/2),my=Math.max(0,(ih-vh)/2),sx=(iw-vw)/2+Math.max(-mx,Math.min(mx,dx*mx)),sy=(ih-vh)/2+Math.max(-my,Math.min(my,dy*my));return{sx,sy,sw:vw,sh:vh};}
+function rebuildPattern(){if(!baseImg)return;const w=cv.width,h=cv.height;if(!patternCanvas){patternCanvas=document.createElement('canvas');patternCtx=patternCanvas.getContext('2d');}patternCanvas.width=w;patternCanvas.height=h;const t=performance.now(),dx=Math.sin(t*0.00023)*0.9,dy=Math.cos(t*0.00019)*0.9,z=1+0.06*Math.sin(t*0.00011),src=computeCoverSrcRect(baseImg.width,baseImg.height,w,h,dx,dy,z),tw=w/gridN,th=h/gridN,sw=src.sw/gridN,sh=src.sh/gridN;patternCtx.clearRect(0,0,w,h);for(let gy=0;gy<gridN;gy++){for(let gx=0;gx<gridN;gx++){const dxp=gx*tw,dyp=gy*th,sx=src.sx+gx*sw,sy=src.sy+gy*sh;patternCtx.save();patternCtx.translate(dxp+tw/2,dyp+th/2);const fx=gx%2?-1:1,fy=gy%2?-1:1;patternCtx.scale(fx,fy);patternCtx.drawImage(baseImg,sx,sy,sw,sh,-tw/2,-th/2,tw,th);patternCtx.restore();}}}
+/* === 枠より大きい円形放射 === */
+function drawRadialFromPattern(){const w=cv.width,h=cv.height;ctx.clearRect(0,0,w,h);ctx.fillStyle='#000';ctx.fillRect(0,0,w,h);if(!patternCanvas)return;const cx=w/2,cy=h/2,slice=(Math.PI*2)/segments,R=Math.max(w,h)*0.7;ctx.save();ctx.translate(cx,cy);const wedgeR=R*1.1;for(let i=0;i<segments;i++){ctx.save();ctx.rotate(i*slice+angle);ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(wedgeR,-wedgeR*Math.tan(slice/2));ctx.lineTo(wedgeR,wedgeR*Math.tan(slice/2));ctx.closePath();ctx.clip();const flip=i%2?-1:1;ctx.scale(flip,1);ctx.drawImage(patternCanvas,-w/2,-h/2,w,h);ctx.restore();}ctx.restore();const fade=ctx.createRadialGradient(cx,cy,R*0.7,cx,cy,R*1.1);fade.addColorStop(0,'rgba(255,255,255,0)');fade.addColorStop(1,'rgba(0,0,0,0.9)');ctx.fillStyle=fade;ctx.fillRect(0,0,w,h);const spd=0.0025*(24/Math.max(12,segments));angle+=spd;}
+let pulseT=0;cv.addEventListener('click',async()=>{if(document.getElementById('chimeOnCanvas').checked){try{await ensureAudioCtx();chimeAudio.currentTime=0;await chimeAudio.play().catch(()=>playBeep());}catch{}}pulseT=performance.now();if(navigator.vibrate)navigator.vibrate(10);});
+function drawPulse(){if(!pulseT)return;const e=(performance.now()-pulseT)/400;if(e>1){pulseT=0;return;}ctx.save();ctx.globalCompositeOperation='screen';ctx.globalAlpha=1-e;const w=cv.width,h=cv.height,g=ctx.createRadialGradient(w/2,h/2,0,w/2,h/2,Math.max(w,h)*0.6*e);g.addColorStop(0,'rgba(255,255,255,0.35)');g.addColorStop(1,'rgba(255,255,255,0)');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);ctx.restore();}
+function tick(){if(baseImg)rebuildPattern();drawRadialFromPattern();drawPulse();requestAnimationFrame(tick);}
+function loadImageFromFile(f){if(!f)return;const u=URL.createObjectURL(f),i=new Image();i.onload=()=>{baseImg=i;URL.revokeObjectURL(u);};i.src=u;}
+document.getElementById('imgFile').onchange=e=>loadImageFromFile(e.target.files[0]);
+['dragenter','dragover'].forEach(t=>cv.addEventListener(t,e=>e.preventDefault()));
+cv.addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files&&e.dataTransfer.files[0];if(f&&f.type.startsWith('image/'))loadImageFromFile(f);});
+document.getElementById('clearImg').onclick=()=>{baseImg=null;patternCanvas=null;};
+const dirPicker=document.getElementById('dirPicker'),prevBtn=document.getElementById('prevBtn'),nextBtn=document.getElementById('nextBtn'),JA=new Intl.Collator('ja',{numeric:true,sensitivity:'base'});
+dirPicker.onchange=e=>{fileList=Array.from(e.target.files).filter(f=>/^image\//.test(f.type));fileList.sort((a,b)=>JA.compare(a.name,b.name));fileIdx=-1;nextImage();};
+function nextImage(){if(!fileList.length)return;fileIdx=(fileIdx+1)%fileList.length;loadImageFromFile(fileList[fileIdx]);}
+function prevImage(){if(!fileList.length)return;fileIdx=(fileIdx-1+fileList.length)%fileList.length;loadImageFromFile(fileList[fileIdx]);}
+nextBtn.onclick=nextImage;prevBtn.onclick=prevImage;
+window.addEventListener('keydown',e=>{if(e.key==='ArrowRight')nextImage();if(e.key==='ArrowLeft')prevImage();});
+function loadBuiltInTestImage(){const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#fff"/><stop offset="50%" stop-color="#f7b65a"/><stop offset="100%" stop-color="#3aa0ff"/></linearGradient><pattern id="p" width="64" height="64" patternUnits="userSpaceOnUse"><rect width="64" height="64" fill="url(#g)"/><path d="M0 32 H64 M32 0 V64" stroke="rgba(0,0,0,.18)" stroke-width="2"/></pattern></defs><rect width="1024" height="1024" fill="url(#p)"/></svg>`;const url='data:image/svg+xml;utf8,'+encodeURIComponent(svg);const i=new Image();i.onload=()=>{baseImg=i;};i.src=url;}
+document.getElementById('testImgBtn').onclick=loadBuiltInTestImage;
+/* === 音楽フォルダ === */
+const musicDir=document.getElementById('musicDir'),prevTrack=document.getElementById('prevTrack'),nextTrack=document.getElementById('nextTrack'),trackInfo=document.getElementById('trackInfo');const collatorJA=new Intl.Collator('ja',{numeric:true,sensitivity:'base'}),AUDIO_OK=new Set(['.mp3','.m4a','.wav','.ogg','.aac','.flac']);let playlist=[],trackIdx=-1;
+function isAudioFile(n){const i=n.lastIndexOf('.');return AUDIO_OK.has((i>=0?n.slice(i).toLowerCase():''));}
+function setTrackInfo(){trackInfo.textContent=(trackIdx>=0&&playlist[trackIdx])?`${trackIdx+1}/${playlist.length} ${playlist[trackIdx].name}`:'';}
+function loadTrack(i){if(!playlist.length)return;trackIdx=(i+playlist.length)%playlist.length;const f=playlist[trackIdx];music.src=URL.createObjectURL(f);setTrackInfo();}
+async function playCurrent(){try{await ensureAudioCtx();await music.play();}catch{}}
+function nextT(){if(!playlist.length)return;loadTrack(trackIdx+1);playCurrent();}
+function prevT(){if(!playlist.length)return;loadTrack(trackIdx-1);playCurrent();}
+musicDir.onchange=e=>{const files=Array.from(e.target.files).filter(f=>isAudioFile(f.name));files.sort((a,b)=>collatorJA.compare(a.name,b.name));playlist=files;if(playlist.length){loadTrack(0);playCurrent();}else{trackIdx=-1;setTrackInfo();}};
+prevTrack.onclick=prevT;nextTrack.onclick=nextT;music.onended=nextT;
+window.addEventListener('keydown',e=>{if(e.key==='ArrowRight')nextT();if(e.key==='ArrowLeft')prevT();});
+document.getElementById('musicFile').onchange=e=>{const f=e.target.files[0];if(f)music.src=URL.createObjectURL(f);};
+document.getElementById('musicPlay').onclick=async()=>{await ensureAudioCtx();if(music.paused)await music.play();else music.pause();};
+/* === UI === */
+const segs=document.getElementById('segs'),segsV=document.getElementById('segsV'),gridNInput=document.getElementById('gridN'),gridNV=document.getElementById('gridNV');
+segs.oninput=()=>{segments=+segs.value;segsV.textContent=segments;};gridNInput.oninput=()=>{gridN=+gridNInput.value;gridNV.textContent=gridN;};
+function fitCanvas(){const dpr=Math.max(1,Math.min(2,window.devicePixelRatio||1)),size=Math.min(window.innerWidth,window.innerHeight-80);cv.style.width=cv.style.height=size+'px';cv.width=Math.floor(size*dpr);cv.height=Math.floor(size*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
+addEventListener('resize',fitCanvas);fitCanvas();loadBuiltInTestImage();requestAnimationFrame(tick);
 </script>
 </body>
 </html>
