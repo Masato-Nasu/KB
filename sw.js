@@ -1,11 +1,10 @@
-// sw.js v13 — 確実更新・自動切替（KBスコープ）
-const SW_VERSION = "v13";
-const CACHE = "kb-" + SW_VERSION;
-
+// sw.js v14 — Square Radiant Player
+const SW_VERSION = "v14";
+const CACHE = "radiant-" + SW_VERSION;
 const ASSETS = [
   "./",
-  "./index.html?v=13",
-  "./manifest.json?v=13",
+  "./index.html?v=14",
+  "./manifest.json?v=14",
   "./icon-192.png",
   "./icon-512.png",
   "./Chime.mp3?v=1"
@@ -21,13 +20,6 @@ self.addEventListener("activate", e => {
     caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
   );
   self.clients.claim();
-  self.clients.matchAll({type:"window"}).then(clients => {
-    clients.forEach(client => client.postMessage({type:"SW_ACTIVATED", version: SW_VERSION}));
-  });
-});
-
-self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("fetch", e => {
@@ -36,9 +28,9 @@ self.addEventListener("fetch", e => {
     e.respondWith(
       fetch(req).then(r => {
         const copy = r.clone();
-        caches.open(CACHE).then(c => c.put("./index.html?v=13", copy));
+        caches.open(CACHE).then(c => c.put("./index.html?v=14", copy));
         return r;
-      }).catch(() => caches.match("./index.html?v=13"))
+      }).catch(() => caches.match("./index.html?v=14"))
     );
     return;
   }

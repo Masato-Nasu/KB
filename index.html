@@ -1,304 +1,172 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="utf-8"/>
+<meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>四角の対角＝円盤直径（サトル音楽連動）</title>
+<title>Square Radiant Player — PWA</title>
+<link rel="manifest" href="./manifest.json?v=14">
+<link rel="icon" href="./icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script>
+  // PWA登録
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js?v=14');
+  }
+</script>
 <style>
-  :root{--bg:#0b0d11;--fg:#e8f0ff;--muted:#9fb6d9}
-  html,body{height:100%;margin:0;background:#0b0d11;color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-  #wrap{position:fixed;inset:0;display:grid;grid-template-rows:1fr auto;justify-items:center;align-items:center}
-  .stage{position:relative;display:grid;place-items:center;width:100%;height:100%}
-  canvas{display:block;position:absolute;inset:0;margin:auto}
-  #box{position:relative;aspect-ratio:1/1;width:min(92vmin, calc(100vw - 32px));}
-  #bg,#mask{width:100%;height:100%}
-  .bar{width:100%;display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;justify-content:center;padding:.7rem;background:linear-gradient(180deg, rgba(14,18,24,.55), rgba(14,18,24,.95));backdrop-filter:blur(6px);border-top:1px solid #1c2635}
-  .btn{background:#0f1a27;border:1px solid #263244;color:var(--fg);padding:.55rem .8rem;border-radius:.8rem;cursor:pointer}
+  :root{
+    --bg:#0e0f12;--panel:#111418;--text:#e8e9ee;--muted:#8b90a1;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);
+             font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif;overflow:hidden;}
+  .wrap{display:flex;flex-direction:column;align-items:center;gap:10px;min-height:100%}
+  header{width:100%;max-width:1100px;padding:10px 14px;box-sizing:border-box;color:var(--muted)}
+  .stage{position:relative;display:grid;place-items:center;width:100%;max-width:1100px;
+         aspect-ratio:1;background:#000;border-radius:12px;cursor:pointer;overflow:hidden}
+  canvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 8px 25px rgba(0,0,0,.4);
+         transition:filter .3s ease}
+  .flash-layer{position:absolute;inset:0;background:white;opacity:0;pointer-events:none;
+               transition:opacity .4s ease;}
+  .flash-layer.active{opacity:.8;}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;
+            padding:12px;background:var(--panel);border-radius:12px;margin:6px;max-width:1100px}
+  .btn{appearance:none;border:0;border-radius:10px;background:#171a20;color:#eaeef8;
+       padding:10px 12px;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
   .btn:active{transform:translateY(1px)}
-  input[type=file]{display:none}
-  label.file{cursor:pointer}
-  .group{display:inline-flex;align-items:center;gap:.35rem}
-  .pill{color:var(--muted);font-size:.9rem}
 </style>
 </head>
 <body>
-<div id="wrap">
-  <div class="stage">
-    <div id="box">
-      <!-- 下：回転する円盤 -->
-      <canvas id="bg" width="1024" height="1024"></canvas>
-      <!-- 上：黒い板（中央は四角い穴・透過） -->
-      <canvas id="mask" width="1024" height="1024"></canvas>
-    </div>
+<div class="wrap">
+  <header>四角い放射花火 — クリックでチャイムと白フラッシュ。PWA対応。</header>
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="flash-layer" id="flash"></div>
   </div>
-
-  <div class="bar">
-    <input id="imgFile" type="file" accept="image/*">
-    <label for="imgFile" class="btn file">📷 画像</label>
-    <button id="testImgBtn" class="btn">🧪 テスト画像</button>
-    <button id="clearImg" class="btn">画像クリア</button>
-
-    <div class="group">
-      <label>分割 N×N</label>
-      <input id="gridN" type="range" min="1" max="32" value="12"><span id="gridNV">12</span>
-    </div>
-    <div class="group">
-      <label>放射セグメント</label>
-      <input id="segs" type="range" min="6" max="96" value="36"><span id="segsV">36</span>
-    </div>
-    <div class="group">
-      <label>穴サイズ</label>
-      <input id="hole" type="range" min="50" max="98" value="86"><span id="holeV">86%</span>
-    </div>
-
-    <!-- 音楽：単体 or フォルダ -->
-    <input id="musicFile" type="file" accept="audio/*">
-    <label for="musicFile" class="btn file">🎵 音楽ファイル</label>
-    <input id="musicDir" type="file" webkitdirectory multiple accept="audio/*">
-    <label for="musicDir" class="btn file">📁 音楽フォルダ</label>
-    <button id="prevTrack" class="btn">⟵ 前</button>
-    <button id="nextTrack" class="btn">次 ⟶</button>
-    <span id="trackInfo" class="pill"></span>
-    <button id="playPause" class="btn">▶ 再生/一時停止</button>
-
-    <label class="group"><input type="checkbox" id="chimeOn" checked> 🔔キャンバスクリックでChime</label>
+  <div class="controls">
+    <label class="btn">🖼 画像<input id="imgFile" type="file" accept="image/*" hidden></label>
+    <label class="btn">🎵 音楽フォルダ<input id="audDir" type="file" webkitdirectory directory multiple accept="audio/*" hidden></label>
+    <button id="prev" class="btn">← 前</button>
+    <button id="play" class="btn">▶ / ❚❚</button>
+    <button id="next" class="btn">次 →</button>
   </div>
 </div>
 
 <script>
-/* ========= Canvas ========= */
-const bg = document.getElementById('bg'); const bk = bg.getContext('2d');
-const mask = document.getElementById('mask'); const mk = mask.getContext('2d');
-const gridNEl = document.getElementById('gridN'), gridNV = document.getElementById('gridNV');
-const segsEl = document.getElementById('segs'), segsV = document.getElementById('segsV');
-const holeEl = document.getElementById('hole'), holeV = document.getElementById('holeV');
-const chimeOn = document.getElementById('chimeOn');
+(() => {
+  const cv=document.getElementById('cv');
+  const ctx=cv.getContext('2d');
+  const stage=document.getElementById('stage');
+  const flash=document.getElementById('flash');
 
-let GRID = +gridNEl.value;
-let SEGS = +segsEl.value;
-let HOLE = +holeEl.value; // % of side
+  // === 画像 ===
+  let currentImage=null;
+  document.getElementById('imgFile').addEventListener('change',async e=>{
+    const f=e.target.files?.[0];if(!f)return;
+    const url=URL.createObjectURL(f);
+    const img=await createImageBitmap(await (await fetch(url)).blob());
+    URL.revokeObjectURL(url);currentImage=img;
+  });
 
-/* ========= Audio (music + chime + analyser) ========= */
-let audioCtx=null, analyser=null, musicSrcNode=null;
-const chime = new Audio('https://raw.githubusercontent.com/Masato-Nasu/KB/main/Chime.mp3');
-const music = new Audio(); music.loop = false; music.crossOrigin = 'anonymous';
-
-async function ensureAC(){
-  if(!audioCtx){ const AC = window.AudioContext || window.webkitAudioContext; audioCtx = new AC(); }
-  if(audioCtx.state === 'suspended') await audioCtx.resume();
-  if(!analyser){
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.92; // ← よりサトルに
+  // === 音楽 ===
+  let audList=[],audIdx=0;
+  const audio=new Audio();
+  let actx,analyser,data;let playing=false;rms=0;
+  function ensureAudio(){
+    if(actx)return;
+    actx=new (window.AudioContext||window.webkitAudioContext)();
+    const src=actx.createMediaElementSource(audio);
+    analyser=actx.createAnalyser();analyser.fftSize=256;
+    data=new Uint8Array(analyser.frequencyBinCount);
+    src.connect(analyser).connect(actx.destination);
   }
-  if(!musicSrcNode){
-    musicSrcNode = audioCtx.createMediaElementSource(music);
-    musicSrcNode.connect(analyser); analyser.connect(audioCtx.destination);
+  const naturalSort=(a,b)=>a.name.localeCompare(b.name,'ja',{numeric:true});
+  document.getElementById('audDir').addEventListener('change',e=>{
+    ensureAudio();
+    audList=[...e.target.files].filter(f=>f.type.startsWith('audio/')).sort(naturalSort);
+    audIdx=0;if(audList.length)playIndex(audIdx);
+  });
+  function playIndex(i){
+    if(!audList.length)return;
+    const f=audList[i];audio.src=URL.createObjectURL(f);audio.play();playing=true;
   }
-}
+  document.getElementById('next').onclick=()=>{if(audList.length){audIdx=(audIdx+1)%audList.length;playIndex(audIdx);} };
+  document.getElementById('prev').onclick=()=>{if(audList.length){audIdx=(audIdx-1+audList.length)%audList.length;playIndex(audIdx);} };
+  audio.onended=()=>{if(audList.length){audIdx=(audIdx+1)%audList.length;playIndex(audIdx);} };
+  document.getElementById('play').onclick=async()=>{
+    ensureAudio();
+    if(actx.state==='suspended')await actx.resume();
+    if(audio.paused){audio.play();playing=true;}else{audio.pause();playing=false;}
+  };
 
-function attachClick(el){
-  el.addEventListener('click', async ()=>{
-    triggerBoost(); // 控えめブースト
-    if (!chimeOn.checked) return;
-    try{ await ensureAC(); chime.currentTime=0; await chime.play(); }catch(e){}
-  }, {passive:true});
-}
-attachClick(bg); attachClick(mask);
+  // === チャイム＋フラッシュ ===
+  const chime=new Audio("./Chime.mp3");chime.volume=.5;
+  stage.onclick=()=>{chime.currentTime=0;chime.play();flash.classList.add('active');
+                     setTimeout(()=>flash.classList.remove('active'),300);}; // ← 時間短め
 
-/* ========= Playlist（数字→50音） ========= */
-const musicFile = document.getElementById('musicFile');
-const musicDir = document.getElementById('musicDir');
-const prevBtn = document.getElementById('prevTrack');
-const nextBtn = document.getElementById('nextTrack');
-const trackInfo = document.getElementById('trackInfo');
-const playPause = document.getElementById('playPause');
+  // === Canvas ===
+  const fit=()=>{const s=Math.min(window.innerWidth,window.innerHeight)-40;
+                 cv.width=cv.height=Math.max(300,Math.floor(s));};
+  window.addEventListener('resize',fit,{passive:true});fit();
 
-const collatorJA = new Intl.Collator('ja', {numeric:true, sensitivity:'base'});
-const AUDIO_OK = new Set(['.mp3','.m4a','.wav','.ogg','.aac','.flac']);
+  // === 描画 ===
+  let t=0,frame=0;const SEGS=40,N=10;
+  function draw(){
+    if(++frame%2){requestAnimationFrame(draw);return;}
+    const w=cv.width,h=cv.height;
+    ctx.clearRect(0,0,w,h);ctx.fillStyle="#000";ctx.fillRect(0,0,w,h);
 
-let playlist = []; let trackIdx = -1;
-
-function isAudio(name){ const i=name.lastIndexOf('.'); const ext=(i>=0?name.slice(i).toLowerCase():''); return AUDIO_OK.has(ext); }
-function setTrackInfo(){ trackInfo.textContent = (trackIdx>=0&&playlist[trackIdx]) ? `${trackIdx+1}/${playlist.length}  ${playlist[trackIdx].name}` : ''; }
-function loadTrack(i){ if(!playlist.length) return; trackIdx=(i+playlist.length)%playlist.length; const f=playlist[trackIdx]; music.src = URL.createObjectURL(f); setTrackInfo(); }
-async function playCurrent(){ try{ await ensureAC(); await music.play(); }catch(e){} }
-function nextTrack(){ if(!playlist.length) return; loadTrack(trackIdx+1); playCurrent(); }
-function prevTrack(){ if(!playlist.length) return; loadTrack(trackIdx-1); playCurrent(); }
-
-musicFile.addEventListener('change', async e=>{ const f=e.target.files[0]; if(!f) return; playlist=[f]; trackIdx=-1; await ensureAC(); nextTrack(); });
-musicDir.addEventListener('change', async e=>{
-  const files = Array.from(e.target.files).filter(f=>isAudio(f.name));
-  files.sort((a,b)=>collatorJA.compare(a.name,b.name));
-  playlist = files; trackIdx=-1; await ensureAC(); nextTrack();
-});
-playPause.addEventListener('click', async ()=>{ await ensureAC(); try{ if(music.paused) await music.play(); else music.pause(); }catch(e){} });
-prevBtn.addEventListener('click', prevTrack);
-nextBtn.addEventListener('click', nextTrack);
-music.addEventListener('ended', nextTrack);
-
-/* ========= Image pattern (N×N mirror) ========= */
-let baseImg=null, pat=null, pctx=null;
-
-function coverSrc(iw,ih,dw,dh,dx=0,dy=0,zoom=1){
-  const s=Math.max(dw/iw, dh/ih)*zoom;
-  const vw=dw/s, vh=dh/s;
-  const mx=Math.max(0,(iw-vw)/2), my=Math.max(0,(ih-vh)/2);
-  const sx=(iw-vw)/2 + Math.max(-mx,Math.min(mx,dx*mx));
-  const sy=(ih-vh)/2 + Math.max(-my,Math.min(my,dy*my));
-  return {sx,sy,sw:vw,sh:vh};
-}
-
-let driftBoost=0;            // 0→1
-const boostPower=0.5;        // 控えめ
-let boostUntil=0;
-function triggerBoost(){ driftBoost=1; boostUntil=performance.now()+800; } // 短め
-
-function rebuildPattern(){
-  if(!baseImg) return;
-  const w=bg.width, h=bg.height;
-  if(!pat){ pat=document.createElement('canvas'); pctx=pat.getContext('2d'); }
-  pat.width=w; pat.height=h;
-
-  // ドリフト＆ズーム（控えめブースト）
-  const t=performance.now();
-  const bf = 1 + 0.6*driftBoost*boostPower;
-  const dx=Math.sin(t*0.00022*bf)*0.7*bf;
-  const dy=Math.cos(t*0.00018*bf)*0.7*bf;
-  const zoom=1 + (0.04*bf)*Math.sin(t*0.00010*bf);
-
-  const src=coverSrc(baseImg.width, baseImg.height, w, h, dx, dy, zoom);
-
-  const tw=w/GRID, th=h/GRID, sw=src.sw/GRID, sh=src.sh/GRID;
-  pctx.clearRect(0,0,w,h);
-  for(let gy=0; gy<GRID; gy++){
-    for(let gx=0; gx<GRID; gx++){
-      const dxp=gx*tw, dyp=gy*th, sxi=src.sx+gx*sw, syi=src.sy+gy*sh;
-      pctx.save();
-      pctx.translate(dxp+tw/2, dyp+th/2);
-      pctx.scale(gx%2?-1:1, gy%2?-1:1);
-      pctx.drawImage(baseImg, sxi, syi, sw, sh, -tw/2, -th/2, tw, th);
-      pctx.restore();
+    if(analyser&&playing){
+      analyser.getByteTimeDomainData(data);
+      let s=0;for(let i=0;i<data.length;i++){const d=(data[i]-128)/128;s+=d*d;}
+      rms=Math.sqrt(s/data.length);
     }
-  }
-}
 
-/* ========= Draw big disc UNDER square hole ========= */
-let angle=0;
-function draw(){
-  const w=bg.width, h=bg.height;
-  bk.clearRect(0,0,w,h);
+    if(currentImage){
+      const slice=(Math.PI*2)/SEGS;
+      const side=Math.min(w,h)*0.8;
+      const plateSide=side*1.6;
+      const half=plateSide/2;
+      const step=plateSide/N;
+      const u=currentImage.width/N,v=currentImage.height/N;
+      const wedgeR=Math.hypot(half,half)*1.05;
 
-  if(pat){
-    const cx=w/2, cy=h/2;
-    const slice=(Math.PI*2)/SEGS;
+      ctx.save();ctx.translate(w/2,h/2);ctx.rotate(t);ctx.globalCompositeOperation="lighter";
+      for(let i=0;i<SEGS;i++){
+        ctx.save();ctx.rotate(i*slice);
+        ctx.beginPath();ctx.moveTo(0,0);
+        const dy=wedgeR*Math.tan(slice/2);
+        ctx.lineTo(wedgeR,-dy);ctx.lineTo(wedgeR,dy);ctx.closePath();ctx.clip();
+        for(let y=0;y<N;y++){
+          for(let x=0;x<N;x++){
+            const sx=(x*u+(t*40+i*13)%u)%currentImage.width;
+            const sy=(y*v+(t*25+i*17)%v)%currentImage.height;
+            ctx.drawImage(currentImage,sx,sy,u,v,-half+x*step,-half+y*step,step,step);
+          }
+        }
+        ctx.restore();
+      }
+      ctx.restore();ctx.globalCompositeOperation="source-over";
 
-    // 穴の一辺 → 円盤半径は「ぴったり」対角/2
-    const side = Math.min(w,h) * (HOLE/100);
-    const R = side / Math.SQRT2;        // ← 指定どおり厳密
-    const wedgeR = R * 1.25;            // 扇は少し長く
+      // 中央ウィンドウ
+      ctx.save();ctx.globalCompositeOperation="destination-in";
+      ctx.rect((w-side)/2,(h-side)/2,side,side);ctx.fill();ctx.restore();
 
-    bk.save();
-    bk.translate(cx,cy);
-
-    // 円盤クリップ
-    bk.beginPath(); bk.arc(0,0,R,0,Math.PI*2); bk.clip();
-
-    for(let i=0;i<SEGS;i++){
-      bk.save();
-      bk.rotate(i*slice + angle);
-      bk.beginPath();
-      bk.moveTo(0,0);
-      bk.lineTo(wedgeR, -wedgeR*Math.tan(slice/2));
-      bk.lineTo(wedgeR,  wedgeR*Math.tan(slice/2));
-      bk.closePath(); bk.clip();
-      const flip=(i%2===1)?-1:1;
-      bk.scale(flip,1);
-      bk.drawImage(pat, -w/2, -h/2, w, h);
-      bk.restore();
+      // 中央グロー（軽量）
+      const grad=ctx.createRadialGradient(w/2,h/2,0,w/2,h/2,side/2);
+      grad.addColorStop(0,`rgba(255,255,255,${Math.min(0.4,rms*3)})`);
+      grad.addColorStop(1,"transparent");
+      ctx.fillStyle=grad;ctx.globalCompositeOperation="lighter";
+      ctx.fillRect(0,0,w,h);
+      ctx.globalCompositeOperation="source-over";
     }
-    bk.restore();
+
+    t+=0.0025+rms*0.005;
+    requestAnimationFrame(draw);
   }
-
-  // 上の黒板に四角い穴
-  mk.clearRect(0,0,w,h);
-  mk.save();
-  mk.fillStyle='#000'; mk.fillRect(0,0,w,h);
-  mk.globalCompositeOperation='destination-out';
-  const side = Math.floor(Math.min(w,h)*(HOLE/100));
-  mk.fillRect((w-side)/2,(h-side)/2,side,side);
-  mk.restore();
-
-  // 回転：サトル設定
-  const baseSpeed = 0.0018*(36/Math.max(12,SEGS)); // ややゆっくり
-  let audioBoost = 0;
-  if(analyser){
-    const bins = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(bins);
-    const n = Math.max(8, Math.floor(bins.length*0.10));
-    let s=0; for(let i=0;i<n;i++) s+=bins[i];
-    const rms = s/(n*255);
-    audioBoost = rms * 0.015;          // ← ごく控えめ
-  }
-  const clickBoost = 0.008*driftBoost; // クリックの回転寄与も少しだけ
-  angle += baseSpeed + audioBoost + clickBoost;
-
-  // ブースト減衰
-  const now = performance.now();
-  if(driftBoost>0){
-    if(now>boostUntil) driftBoost=0;
-    else driftBoost = Math.max(0, driftBoost - 0.035);
-  }
-
-  requestAnimationFrame(tick);
-}
-
-function tick(){ if(baseImg) rebuildPattern(); draw(); }
-
-/* ========= Fit ========= */
-function fit(){
-  const ratio = Math.min(window.innerWidth, window.innerHeight-92);
-  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
-  const px = Math.floor(ratio * dpr);
-  bg.width=bg.height=mask.width=mask.height=px;
-  bg.style.width=bg.style.height=mask.style.width=mask.style.height=(ratio)+'px';
-}
-addEventListener('resize', fit); fit();
-
-/* ========= Image loaders ========= */
-function loadImgFile(f){
-  if(!f) return;
-  const url = URL.createObjectURL(f);
-  const im = new Image();
-  im.onload = ()=>{ baseImg=im; URL.revokeObjectURL(url); };
-  im.src = url;
-}
-document.getElementById('imgFile').addEventListener('change', e=>loadImgFile(e.target.files[0]));
-document.getElementById('testImgBtn').addEventListener('click', ()=>{
-  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-    <defs>
-      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stop-color="#fff"/><stop offset="50%" stop-color="#f7b65a"/><stop offset="100%" stop-color="#3aa0ff"/>
-      </linearGradient>
-      <pattern id="p" width="64" height="64" patternUnits="userSpaceOnUse">
-        <rect width="64" height="64" fill="url(#g)"/>
-        <path d="M0 32 H64 M32 0 V64" stroke="rgba(0,0,0,.18)" stroke-width="2"/>
-      </pattern>
-    </defs>
-    <rect width="1024" height="1024" fill="url(#p)"/></svg>`;
-  const url='data:image/svg+xml;utf8,'+encodeURIComponent(svg);
-  const im=new Image(); im.onload=()=>{ baseImg=im; }; im.src=url;
-});
-document.getElementById('clearImg').addEventListener('click', ()=>{ baseImg=null; pat=null; });
-
-/* ========= UI ========= */
-gridNEl.addEventListener('input', ()=>{ GRID=+gridNEl.value; gridNV.textContent=GRID; });
-segsEl.addEventListener('input', ()=>{ SEGS=+segsEl.value; segsV.textContent=SEGS; });
-holeEl.addEventListener('input', ()=>{ HOLE=+holeEl.value; holeV.textContent=HOLE+'%'; });
-
-/* ========= Boot ========= */
-document.getElementById('testImgBtn').click();
-requestAnimationFrame(tick);
+  draw();
+})();
 </script>
 </body>
 </html>
