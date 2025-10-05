@@ -4,11 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
 <title>Square Radiant Player v2</title>
+<link rel="manifest" href="./manifest.json?v=15">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
   }
-<script>if("serviceWorker" in navigator){navigator.serviceWorker.register("./sw.js?v=14");}</script>
   html,body{
     height:100%;margin:0;
     background:var(--bg);color:var(--text);
@@ -120,7 +120,6 @@
   const chime = new Audio("./Chime.mp3");
   chime.volume = 0.5;
 
-  // フラッシュ時間を短縮（1200 → 600）
   stage.addEventListener('click', ()=>{
     chime.currentTime = 0;
     chime.play();
@@ -200,6 +199,11 @@
   }
   draw();
 })();
+</script>
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./sw.js?v=15");
+}
 </script>
 </body>
 </html>
