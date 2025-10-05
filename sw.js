@@ -1,14 +1,14 @@
-// sw.js v7 — 確実更新 & 相対パス対応
-const SW_VERSION = "v7";
+// sw.js v8 — 確実更新 & 相対パス対応
+const SW_VERSION = "v8";
 const CACHE = "kaleido-" + SW_VERSION;
 
 const ASSETS = [
   "./",
-  "./index.html?v=7",
-  "./manifest.json?v=7",
+  "./index.html?v=8",
+  "./manifest.json?v=8",
   "./icon-192.png",
   "./icon-512.png",
-  "./Chime.m4a?v=7"
+  "./Chime.m4a?v=8"
 ];
 
 self.addEventListener("install", (e) => {
