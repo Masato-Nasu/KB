@@ -2,9 +2,9 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Baby Shapes Neon — 再生モード付き (v1.3)</title>
-<link rel="manifest" href="./manifest.json?v=1.3">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+<title>Baby Shapes Neon — ジェスチャー表示 (v1.3.2)</title>
+<link rel="manifest" href="./manifest.json?v=1.3.2">
 <meta name="theme-color" content="#1a1a1a">
 <style>
   :root{ --bg:#1a1a1a; --panel:#20232bcc; --text:#E8EAF2; --muted:#8b90a1; --boxw:1100px; --pad:16px;}
@@ -22,16 +22,13 @@
   /* 再生モード（全画面） */
   .fullscreen .wrap{padding:0}
   .fullscreen .box{width:100%; border-radius:0; box-shadow:none;}
-  .fullscreen .stage{aspect-ratio:auto; width:100vw; height:100vh;}
+  .fullscreen .stage{aspect-ratio:auto; width:100vw; height:100dvh;}
   .hidden{opacity:0; visibility:hidden; pointer-events:none}
-  .topbar{position:fixed; top:10px; right:10px; z-index:10; display:flex; gap:8px}
+  /* ヒント（画面左下に薄く） */
+  .hint{position:fixed;left:10px;bottom:10px;font-size:12px;color:#999}
 </style>
 </head>
 <body>
-<div class="topbar">
-  <button id="playMode" class="btn">🖥️ 再生モード</button>
-  <button id="showCtrl" class="btn">⚙️ 設定</button>
-</div>
 <div class="wrap">
   <div class="box"><div class="stage" id="stage"><canvas id="cv"></canvas></div></div>
   <div class="box">
@@ -45,8 +42,9 @@
       <div class="range">ひかり <input id="glow" type="range" min="8" max="60" step="1" value="28"></div>
     </div>
   </div>
-  <div class="muted">v1.3: 全画面の再生モード＋設定UIの自動非表示。最低3つ／ダーク背景／PWA。</div>
+  <div class="muted">v1.3.2: 画面ボタンを消し、<b>「2本指で長押し(0.8秒)」</b>で設定を表示/非表示。Androidの歪み/振る反応は前版の修正を継承。</div>
 </div>
+<div class="hint">ヒント: 2本指で0.8秒タッチ→設定</div>
 
 <script>
 (() => {
@@ -57,33 +55,51 @@
   const countUI = document.getElementById('count');
   const thickUI = document.getElementById('thick');
   const glowUI  = document.getElementById('glow');
+  const hintEl = document.querySelector('.hint');
 
-  // --- 再生モード（全画面）＆UI自動非表示 ---
-  const playModeBtn = document.getElementById('playMode');
-  const showCtrlBtn = document.getElementById('showCtrl');
-  let autoHideTimer=null;
-  function hideControls(){ controls.classList.add('hidden'); }
-  function showControls(){ controls.classList.remove('hidden'); restartAutoHide(); }
-  function restartAutoHide(){
-    if(document.fullscreenElement){ // 全画面時のみ自動非表示
-      if(autoHideTimer) clearTimeout(autoHideTimer);
-      autoHideTimer = setTimeout(hideControls, 2500);
+  // --- 物理ボタン検出はWebでは不可 → 代替のジェスチャーで対応 ---
+  // 2本指で0.8秒長押し → 設定トグル
+  let activePointers = new Map();
+  let holdTimer = null;
+  let holding = false;
+  function onPointerDown(e){
+    activePointers.set(e.pointerId, {x:e.clientX,y:e.clientY,time:performance.now()});
+    if(activePointers.size>=2 && !holdTimer){
+      holdTimer = setTimeout(()=>{
+        holding = true;
+        controls.classList.toggle('hidden');
+        // ヒントは1回出したら消す
+        if(!controls.classList.contains('hidden')){ hintEl.style.display='none'; }
+      }, 800);
     }
   }
-  playModeBtn.addEventListener('click', async ()=>{
-    if(!document.fullscreenElement){
-      await document.documentElement.requestFullscreen().catch(()=>{});
-      document.body.classList.add('fullscreen');
-      restartAutoHide();
-    }else{
-      await document.exitFullscreen().catch(()=>{});
-      document.body.classList.remove('fullscreen');
-      controls.classList.remove('hidden');
+  function cancelHold(){
+    if(holdTimer){ clearTimeout(holdTimer); holdTimer=null; }
+    holding=false;
+  }
+  function onPointerUp(e){ activePointers.delete(e.pointerId); cancelHold(); }
+  function onPointerMove(e){
+    // 大きく動いたらキャンセル（誤爆防止）
+    const p=activePointers.get(e.pointerId);
+    if(p){
+      const dx=Math.abs(e.clientX-p.x), dy=Math.abs(e.clientY-p.y);
+      if(dx>20 || dy>20) cancelHold();
     }
+  }
+  ['pointerdown','pointerup','pointercancel','pointermove'].forEach(ev=>{
+    stage.addEventListener(ev, (e)=>{
+      if(ev==='pointerdown') onPointerDown(e);
+      if(ev==='pointerup' || ev==='pointercancel') onPointerUp(e);
+      if(ev==='pointermove') onPointerMove(e);
+    }, {passive:false});
   });
-  showCtrlBtn.addEventListener('click', showControls);
-  document.addEventListener('pointermove', ()=>{ if(document.fullscreenElement){ showControls(); }}, {passive:true});
-  document.addEventListener('pointerdown', ()=>{ if(document.fullscreenElement){ restartAutoHide(); }}, {passive:true});
+
+  // 初回操作時にフルスクリーンへ（再生モード想定）
+  stage.addEventListener('pointerdown', async ()=>{
+    if(!document.fullscreenElement){
+      try{ await document.documentElement.requestFullscreen(); document.body.classList.add('fullscreen'); }catch(_){}
+    }
+  }, {once:true});
 
   // palette
   const COLORS = ["#39FF14","#00FFFF","#FF4D6D","#FFD166","#9D4DFF"];
@@ -125,15 +141,26 @@
     else { audio.currentTime=0; audio.play(); }
   });
 
-  // ===== Canvas sizing
-  const dprCap=1.25;
-  function fit(){
-    const s=Math.min(stage.clientWidth, stage.clientHeight);
+  // ===== Canvas sizing (歪み対策)
+  const dprCap=1.5;
+  function vpSize(){
+    const vv = window.visualViewport;
+    return vv ? { w: Math.floor(vv.width), h: Math.floor(vv.height) } : { w: window.innerWidth, h: window.innerHeight };
+  }
+  function fit(full){
     const dpr=Math.min(window.devicePixelRatio||1, dprCap);
-    cv.width=cv.height=Math.max(360,Math.floor(s*dpr));
+    if(full || document.fullscreenElement){
+      const {w,h}=vpSize();
+      cv.width = Math.max(360, Math.floor(w*dpr));
+      cv.height = Math.max(360, Math.floor(h*dpr));
+    }else{
+      const s=Math.min(stage.clientWidth, stage.clientHeight);
+      cv.width=cv.height=Math.max(360,Math.floor(s*dpr));
+    }
   }
   const ro=new ResizeObserver(()=>fit()); ro.observe(stage); fit();
-  let lastDPR=window.devicePixelRatio; setInterval(()=>{ if(window.devicePixelRatio!==lastDPR){ lastDPR=window.devicePixelRatio; fit(); } }, 600);
+  window.addEventListener('resize', ()=>fit(), {passive:true});
+  if(window.visualViewport){ visualViewport.addEventListener('resize', ()=>fit(), {passive:true}); }
 
   // ===== Shapes
   const TYPES = ["circle","triangle","square","star","heart"];
@@ -173,7 +200,35 @@
     try{ chime.currentTime=0; chime.play(); }catch(_){}
   });
 
-  // sparks omitted（軽量化）
+  // ANDROID motion permission
+  async function requestMotionPermission(){
+    try{
+      if (typeof DeviceMotionEvent !== 'undefined' && DeviceMotionEvent.requestPermission){
+        const r = await DeviceMotionEvent.requestPermission(); console.log('DeviceMotion perm:', r);
+      }
+    }catch(_){}
+  }
+  document.addEventListener('pointerdown', requestMotionPermission, {once:true});
+
+  if (window.DeviceMotionEvent){
+    let last=0;
+    window.addEventListener('devicemotion', (e)=>{
+      const a=e.accelerationIncludingGravity||{}; const x=a.x||0,y=a.y||0,z=a.z||0;
+      const s=Math.sqrt(x*x+y*y+z*z);
+      if(s>18 && Date.now()-last>900){
+        const cx=cv.width/2, cy=cv.height/2;
+        for(const sh of shapes){
+          const ang=Math.atan2(sh.y-cy, sh.x-cx);
+          const force = 2.6 + Math.random()*1.6;
+          sh.vx += Math.cos(ang)*force;
+          sh.vy += Math.sin(ang)*force;
+          sh.pulse = Math.min(1, sh.pulse+0.8);
+        }
+        try{ chime.currentTime=0; chime.play(); }catch(_){}
+        last=Date.now();
+      }
+    }, {passive:true});
+  }
 
   // ===== draw
   let t=0;
@@ -212,7 +267,7 @@
 })();
 </script>
 <script>
-if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js?v=1.3"); }
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js?v=1.3.2"); }
 </script>
 </body>
 </html>
