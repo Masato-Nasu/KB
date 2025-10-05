@@ -1,5 +1,5 @@
-// sw.js v6  — 確実に更新される版
-const SW_VERSION = "v6";
+// sw.js v7  — 確実に更新される版
+const SW_VERSION = "v7";
 const CACHE = "kaleido-" + SW_VERSION;
 
 // すべて相対パス（GitHub Pages のサブパス /repo/ に対応）
