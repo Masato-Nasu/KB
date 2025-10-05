@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Square Kaleidoscope — v11</title>
+<title>Square Kaleidoscope — v12</title>
 
-<link rel="manifest" href="./manifest.json?v=11">
+<link rel="manifest" href="./manifest.json?v=12">
 <meta name="theme-color" content="#000000">
 <link rel="icon" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -24,11 +24,15 @@
   #install{position:fixed;top:10px;right:10px}
   #dropHint{position:fixed;inset:auto auto 64px 50%;transform:translateX(-50%);color:#bbb;font:12px/1.4 sans-serif;z-index:3;opacity:.9}
   label{display:flex;gap:6px;align-items:center}
+  #plist{position:fixed;right:10px;bottom:80px;max-height:45vh;overflow:auto;background:#111a;color:#fff;border:1px solid #333;border-radius:10px;padding:8px 10px;font:12px/1.5 sans-serif;min-width:220px}
+  #plist b{display:block;margin:.2em 0 .4em;color:#9cf}
+  #plist li{list-style:none;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+  #plist li.playing{color:#0f0}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="status">booting… (v11)</div>
+<div id="status">booting… (v12)</div>
 
 <div id="ui">
   <input type="file" id="img" accept="image/*" title="画像ファイルを選択">
@@ -36,25 +40,31 @@
 
   <button id="enable">🔊 センサーと音を有効化</button>
 
-  <input type="file" id="music" accept="audio/*" title="音楽/効果音（チャイムにも使用）">
-  <button id="play">▶︎ 再生/一時停止</button>
+  <!-- ✅ フォルダ選択 + 複数 -->
+  <input type="file" id="music" accept="audio/*" webkitdirectory multiple title="音楽フォルダ／複数ファイル">
+  <button id="prev">⏮</button>
+  <button id="play">▶︎/⏸</button>
+  <button id="next">⏭</button>
 
   <label>セグメント <input id="seg" type="range" min="8" max="96" step="2" value="32"></label>
 
   <button id="install" hidden>+ インストール</button>
 </div>
+<ul id="plist" hidden>
+  <b>Playlist</b>
+</ul>
 <div id="dropHint">🖼 画像はドラッグ＆ドロップでも読み込めます</div>
 
-<audio id="chime" src="./Chime.m4a?v=11" preload="auto" playsinline></audio>
+<audio id="chime" src="./Chime.m4a?v=12" preload="auto" playsinline></audio>
 <audio id="player" preload="none" playsinline></audio>
 
 <script>
 /* ===== constants ===== */
-const APP_VERSION = "v11";
+const APP_VERSION = "v12";
 
 /* ===== Service Worker（即時更新＆自動リロード） ===== */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=11').then(reg => {
+  navigator.serviceWorker.register('./sw.js?v=12').then(reg => {
     if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
     reg.addEventListener('updatefound', () => {
       const sw = reg.installing;
@@ -124,13 +134,13 @@ function initGL(){
   gl.uniform1f(prog.uSectors,parseFloat(document.getElementById('seg').value));
   gl.uniform1i(prog.uTex,0);gl.uniform1f(prog.uHasTex,0.0);
   gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(prog.uRes,canvas.width,canvas.height);
-  log('WebGL OK (v11)');
+  log('WebGL OK (v12)');
 }
 let startT=performance.now();
 function loop(){const t=(performance.now()-startT)/1000;if(gl){gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.uniform1f(prog.uTime,t);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}else checker();requestAnimationFrame(loop);}requestAnimationFrame(loop);
 try{initGL();}catch(e){log('WebGL失敗: '+e.message);}
 
-/* ===== テクスチャ作成（NPOT対応） ===== */
+/* ===== テクスチャ作成 ===== */
 function makeTex(img){
   if(!gl){img2D=img;return;}
   tex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,tex);
@@ -155,23 +165,49 @@ addEventListener('dragover',e=>e.preventDefault());
 addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files?.[0];if(!f||!f.type.startsWith('image/'))return;
   const u=URL.createObjectURL(f);const i=new Image();i.onload=()=>{makeTex(i);URL.revokeObjectURL(u);} ;i.src=u;});
 
-/* ===== オーディオ（チャイム＝選択音源/未選択は内蔵） ===== */
+/* ===== オーディオ（チャイム＝選択音源/未選択は内蔵） ＋ プレイリスト ===== */
 const ch=document.getElementById('chime'),pl=document.getElementById('player');let enabled=false;
+const musicInput=document.getElementById('music');const plist=document.getElementById('plist');
+let tracks=[], idx=-1;
+
 document.getElementById('enable').onclick=async()=>{
-  try{ if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission();
-       await ch.play(); ch.pause(); ch.currentTime=0; enabled=true; log('音OK'); }
-  catch(e){ log('音失敗: '+e.message); }
+  try{
+    if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission();
+    await ch.play(); ch.pause(); ch.currentTime=0; enabled=true; log('音OK（クリック/シェイク可）');
+  }catch(e){ log('音失敗: '+e.message); }
 };
+
 function tryPlay(el){ el.play().catch(e=>log('再生失敗: '+e.message)); }
 function playChime(){ if(!enabled){log('先に「センサーと音を有効化」を押してください'); return;} ch.currentTime=0; tryPlay(ch); }
 canvas.addEventListener('pointerdown', playChime);
 addEventListener('devicemotion',e=>{ const a=e.accelerationIncludingGravity||{x:0,y:0,z:0}; if(Math.hypot(a.x,a.y,a.z)>25) playChime(); },{passive:true});
-document.getElementById('music').onchange=e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const u=URL.createObjectURL(f); pl.src=u; ch.src=u;
-  pl.onloadedmetadata=()=>log('音源読み込み: '+(f.name||'audio'));
+
+musicInput.onchange=e=>{
+  tracks=[...e.target.files].filter(f=>f.type.startsWith('audio/'));
+  if(!tracks.length){ log('音源なし'); plist.hidden=true; return; }
+  // UI更新
+  plist.hidden=false; plist.innerHTML='<b>Playlist</b>';
+  tracks.forEach((f,i)=>{ const li=document.createElement('li'); li.textContent=f.webkitRelativePath||f.name; li.onclick=()=>start(i); plist.appendChild(li); });
+  start(0);
 };
+
+function start(i){
+  idx=i; const f=tracks[i]; const u=URL.createObjectURL(f);
+  pl.src=u; ch.src=u; // チャイムも同音源に
+  pl.onloadedmetadata=()=>log('音源: '+(f.name||'audio'));
+  highlight();
+  pl.onended=()=>next();
+  tryPlay(pl);
+}
+function highlight(){
+  [...plist.querySelectorAll('li')].forEach((li,i)=>li.classList.toggle('playing', i===idx));
+}
+function next(){ if(!tracks.length) return; start((idx+1)%tracks.length); }
+function prev(){ if(!tracks.length) return; start((idx-1+tracks.length)%tracks.length); }
+
 document.getElementById('play').onclick=()=>{ if(!pl.src) return log('音源を選択'); if(pl.paused) pl.play(); else pl.pause(); };
+document.getElementById('next').onclick=next;
+document.getElementById('prev').onclick=prev;
 
 /* ===== セグメント ===== */
 document.getElementById('seg').oninput=e=>{ if(gl) gl.uniform1f(prog.uSectors,parseFloat(e.target.value)); };

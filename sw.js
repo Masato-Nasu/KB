@@ -1,14 +1,14 @@
-// sw.js v11 — 確実更新・自動切替
-const SW_VERSION = "v11";
+// sw.js v12 — 確実更新・自動切替
+const SW_VERSION = "v12";
 const CACHE = "kaleido-" + SW_VERSION;
 
 const ASSETS = [
   "./",
-  "./index.html?v=11",
-  "./manifest.json?v=11",
+  "./index.html?v=12",
+  "./manifest.json?v=12",
   "./icon-192.png",
   "./icon-512.png",
-  "./Chime.m4a?v=11"
+  "./Chime.m4a?v=12"
 ];
 
 self.addEventListener("install", e => {
@@ -23,7 +23,6 @@ self.addEventListener("activate", e => {
     )
   );
   self.clients.claim();
-  // 新SW適用を全クライアントへ通知 → ページ側が受け取って自動リロード
   self.clients.matchAll({type:"window"}).then(clients => {
     clients.forEach(client => client.postMessage({type:"SW_ACTIVATED", version: SW_VERSION}));
   });
@@ -39,9 +38,9 @@ self.addEventListener("fetch", e => {
     e.respondWith(
       fetch(req).then(r => {
         const copy = r.clone();
-        caches.open(CACHE).then(c => c.put("./index.html?v=11", copy));
+        caches.open(CACHE).then(c => c.put("./index.html?v=12", copy));
         return r;
-      }).catch(() => caches.match("./index.html?v=11"))
+      }).catch(() => caches.match("./index.html?v=12"))
     );
     return;
   }
