@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v2</title>
-<link rel="manifest" href="./manifest.json?v=16">
+<title>Square Radiant Player v3</title>
+<link rel="manifest" href="./manifest.json?v=17">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -120,11 +120,9 @@
   const chime = new Audio("./Chime.mp3");
   chime.volume = 0.5;
 
-  // --- クリック時（既存） + iOSのセンサー許可リクエストをここで実施 ---
   stage.addEventListener('click', async ()=>{
     try {
       if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-        // iOS Safari: ユーザー操作内で許可リクエスト
         await DeviceMotionEvent.requestPermission().catch(()=>{});
       }
     } catch(e){}
@@ -134,7 +132,6 @@
     setTimeout(()=>cv.classList.remove('flash'),600);
   });
 
-  // --- 端末の衝撃（シェイク）でフラッシュ＆チャイム ---
   if (window.DeviceMotionEvent) {
     let lastShake = 0;
     window.addEventListener("devicemotion", (e) => {
@@ -142,7 +139,6 @@
       if (!acc) return;
       const x = acc.x || 0, y = acc.y || 0, z = acc.z || 0;
       const strength = Math.sqrt(x*x + y*y + z*z);
-      // 閾値: 18。連続発火防止のため1秒クールダウン
       if (strength > 18 && Date.now() - lastShake > 1000) {
         lastShake = Date.now();
         chime.currentTime = 0;
@@ -192,10 +188,14 @@
         ctx.closePath();
         ctx.clip();
 
+        const phase = Math.sin(t*0.8 + i*0.3)*0.5 + 0.5;
+        const driftX = Math.sin(t*0.6 + i*0.2) * currentImage.width * (0.015 + phase*0.015);
+        const driftY = Math.cos(t*0.7 + i*0.25) * currentImage.height * (0.015 + phase*0.015);
+
         for(let y=0;y<N;y++){
           for(let x=0;x<N;x++){
-            const sx=(x*uStep+(t*40+i*13)%uStep)%currentImage.width;
-            const sy=(y*vStep+(t*25+i*17)%vStep)%currentImage.height;
+            const sx=(x*uStep + driftX + phase*60) % currentImage.width;
+            const sy=(y*vStep + driftY + phase*80) % currentImage.height;
             ctx.drawImage(currentImage,sx,sy,uStep,vStep,-half+x*step,-half+y*step,step,step);
           }
         }
@@ -228,7 +228,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=16");
+  navigator.serviceWorker.register("./sw.js?v=17");
 }
 </script>
 </body>
