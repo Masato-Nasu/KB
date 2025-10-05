@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Square Kaleidoscope — Radial, Square Crop, Moving Fragments</title>
+<title>万華鏡（正方形・放射状）PWA</title>
 
-<link rel="manifest" href="./manifest.json?v=5">
+<!-- PWA -->
+<link rel="manifest" href="./manifest.json?v=6">
 <meta name="theme-color" content="#0f0f12">
 <link rel="icon" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -13,13 +14,17 @@
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden}
   #c{width:100vw;height:100vh;display:block;touch-action:manipulation}
-  #ui{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
-      display:flex;gap:10px;align-items:center;color:#fff;font-family:sans-serif;font-size:14px;flex-wrap:wrap;justify-content:center;z-index:3}
+  #ui{
+    position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
+    display:flex;gap:10px;align-items:center;color:#fff;font-family:sans-serif;
+    font-size:14px;flex-wrap:wrap;justify-content:center;z-index:3
+  }
   input[type=file]{appearance:auto;background:#111;color:#fff;border:1px solid #444;border-radius:8px;padding:8px 12px}
   button{background:#111;border:1px solid #444;border-radius:8px;padding:8px 14px;cursor:pointer;color:#fff}
   #status{position:fixed;top:10px;left:50%;transform:translateX(-50%);color:#9cf;font-family:monospace;font-size:12px;opacity:.95;z-index:3;text-align:center;white-space:pre-wrap}
   #install{position:fixed;top:10px;right:10px}
   #dropHint{position:fixed;inset:auto auto 64px 50%;transform:translateX(-50%);color:#bbb;font:12px/1.4 sans-serif;z-index:3;opacity:.9}
+  label{display:flex;gap:6px;align-items:center}
   .warn{color:#ffc107}
 </style>
 </head>
@@ -33,25 +38,40 @@
   <button id="reset" title="既定模様に戻す">画像クリア</button>
 
   <!-- 音（センサー＆チャイム） -->
-  <button id="enable">🔊 センサーと音を有効化</button>
+  <button id="enable" title="iOS等で必要">🔊 センサーと音を有効化</button>
 
-  <!-- 音楽プレーヤー（この選択音源をチャイムにも流用） -->
+  <!-- 音楽プレーヤー（読み込んだ音源をチャイムにも使用） -->
   <input type="file" id="music" accept="audio/*" title="音楽/効果音を選択（チャイムにも使用）">
   <button id="play">▶︎ 再生/一時停止</button>
+
+  <!-- セグメント数 -->
+  <label>セグメント
+    <input id="seg" type="range" min="8" max="96" step="2" value="32">
+  </label>
 
   <button id="install" hidden>+ インストール</button>
 </div>
 <div id="dropHint">🖼 画像はドラッグ＆ドロップでも読み込めます</div>
 
-<!-- 既定チャイム（未選択時のフォールバック）。※大文字C -->
-<audio id="chime" src="./Chime.m4a?v=5" preload="auto" playsinline></audio>
+<!-- 既定チャイム（フォールバック）。※ファイル名は大文字C：Chime.m4a -->
+<audio id="chime" src="./Chime.m4a?v=6" preload="auto" playsinline></audio>
 <!-- ユーザー音源用プレーヤー -->
 <audio id="player" preload="none" playsinline></audio>
 
 <script>
-/* ===== Service Worker ===== */
+/* ===== Service Worker（即時更新） ===== */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=5').catch(e=>{
+  navigator.serviceWorker.register('./sw.js?v=6').then(reg => {
+    if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
+    reg.addEventListener('updatefound', () => {
+      const sw = reg.installing;
+      if (sw) sw.addEventListener('statechange', () => {
+        if (sw.state === 'installed' && reg.waiting) {
+          reg.waiting.postMessage({type:'SKIP_WAITING'});
+        }
+      });
+    });
+  }).catch(e=>{
     document.getElementById('status').textContent = 'SW登録失敗: '+e.message+'\n(https/localhostでのみ有効)';
   });
 }
@@ -62,13 +82,20 @@ const installBtn = document.getElementById('install');
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt=e; installBtn.hidden=false; });
 installBtn.onclick = async () => { installBtn.hidden=true; if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; } };
 
-/* ===== Canvas & Resolution ===== */
+/* ===== Canvas サイズ ===== */
 const canvas = document.getElementById('c'), statusEl = document.getElementById('status');
 const dpr=Math.min(devicePixelRatio||1,2);
-function fit(){ canvas.width=Math.floor(innerWidth*dpr); canvas.height=Math.floor(innerHeight*dpr); if(gl){ gl.viewport(0,0,canvas.width,canvas.height); gl.uniform2f(prog.uRes, canvas.width, canvas.height); } }
+function fit(){
+  canvas.width=Math.floor(innerWidth*dpr);
+  canvas.height=Math.floor(innerHeight*dpr);
+  if(gl){
+    gl.viewport(0,0,canvas.width,canvas.height);
+    gl.uniform2f(prog.uRes, canvas.width, canvas.height);
+  }
+}
 addEventListener('resize', fit); fit();
 
-/* ===== 2D fallback base ===== */
+/* ===== 2D フォールバック ===== */
 const ctx2d = canvas.getContext('2d');
 function drawChecker2D(){
   const w=canvas.width,h=canvas.height,c=16,s=Math.ceil(Math.min(w,h)/c);
@@ -79,7 +106,7 @@ function drawChecker2D(){
 drawChecker2D();
 statusEl.textContent='2D 起動 — WebGL 初期化中…';
 
-/* ===== WebGL (radial + square crop + moving fragments) ===== */
+/* ===== WebGL（放射＋正方形断ち切り＋フラグメント内モーション） ===== */
 let gl, prog, tex=null, start=performance.now(), img2D=null;
 function initGL(){
   const opts = {alpha:false,antialias:true};
@@ -88,7 +115,6 @@ function initGL(){
 
   const vs=`attribute vec2 aPos;varying vec2 vUv;void main(){vUv=(aPos+1.0)*0.5;gl_Position=vec4(aPos,0.0,1.0);}`;
 
-  // ---- フラグメント：正方形断ち切り + 放射分割 + セグメント内モーション ----
   const fs=`
   precision mediump float;
   varying vec2 vUv;
@@ -112,24 +138,20 @@ function initGL(){
     float TWO_PI = 6.28318530718;
     float sector = TWO_PI / uSectors;
     float ang = atan(p.y, p.x);
-    float k = floor(ang / sector);          // セクタ番号
+    float k = floor(ang / sector);      // セクタ番号
     float a = mod(ang, sector);
     if (mod(k, 2.0) > 0.5) a = sector - a;
 
     float r = length(p);
     vec2 dir = vec2(cos(a), sin(a));
 
-    // ---- セグメント内モーション ----
-    // セクタごとに位相ずらし、テクスチャ座標を回転＋平行移動
-    float phase = k * 2.618;                // 黄金比由来の位相でバラけさせる
+    // セグメント内モーション（位相ずらし＋微回転＋スライド）
+    float phase = k * 2.618;            // ばらける位相
     float spin  = 0.12 * sin(uTime*0.6 + phase);
-    vec2  d     = dir * r;
-    d = rot(spin) * d;
-
-    float breathe = 1.0 + 0.18*sin(uTime*0.8 + 0.7*phase); // ゆるい呼吸
+    vec2  d     = rot(spin) * (dir * r);
+    float breathe = 1.0 + 0.18*sin(uTime*0.8 + 0.7*phase);
     vec2 t = d * breathe + 0.5;
 
-    // セグメントごとの平行移動（画像が“流れる”感じ）
     vec2 slide = 0.06 * vec2(cos(uTime*0.5 + phase), sin(uTime*0.7 + 1.3*phase));
     t += slide;
 
@@ -154,7 +176,7 @@ function initGL(){
   prog.uHasTex=gl.getUniformLocation(prog,'uHasTex');
   prog.uRes=gl.getUniformLocation(prog,'uRes');
 
-  gl.uniform1f(prog.uSectors, 32.0);   // 好みで変更可
+  gl.uniform1f(prog.uSectors, parseFloat(document.getElementById('seg').value));
   gl.uniform1f(prog.uHasTex, 0.0);
   gl.uniform1i(prog.uTex, 0);
   gl.viewport(0,0,canvas.width,canvas.height);
@@ -184,7 +206,7 @@ function render(){
     gl.uniform1f(prog.uTime,t);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   }else{
-    // 2Dフォールバック（簡易タイル）
+    // 2Dタイルの簡易フォールバック
     const w=canvas.width,h=canvas.height;
     ctx2d.clearRect(0,0,w,h);
     if(img2D){
@@ -252,7 +274,6 @@ document.getElementById('enable').onclick = enableAudioSensors;
 
 function playChime(){
   const now=performance.now(); if(now-lastPlay<300) return; lastPlay=now;
-  // 音源は「読み込んだ音楽ファイル」に自動切替（未選択時は既定Chime）
   chimeEl.currentTime = 0;
   chimeEl.play().catch(()=>{});
 }
@@ -265,7 +286,7 @@ addEventListener('devicemotion',(e)=>{
   if(mag>18 && t-lastT>600){ lastT=t; playChime(); }
 },{passive:true});
 
-/* ===== 音楽プレーヤー ===== */
+/* ===== 音楽プレーヤー（読み込むとチャイム音源も切替） ===== */
 const musicInput = document.getElementById('music');
 const playBtn = document.getElementById('play');
 
@@ -273,8 +294,7 @@ musicInput.addEventListener('change', e=>{
   const f = e.target.files && e.target.files[0]; if(!f) return;
   const url = URL.createObjectURL(f);
   player.src = url;
-  // ★ チャイムの音源もこのファイルに切り替え
-  chimeEl.src = url;
+  chimeEl.src = url; // ★チャイムもこの音源を使用
   player.onloadedmetadata = ()=>{ statusEl.textContent='🎵 音源読み込み完了（チャイムにも使用）：' + (f.name||'audio'); };
 });
 
@@ -283,6 +303,12 @@ playBtn.onclick = ()=>{
   if(player.paused){ player.play().then(()=>{ playBtn.textContent='⏸ 一時停止'; }).catch(()=>{}); }
   else { player.pause(); playBtn.textContent='▶︎ 再生'; }
 };
+
+/* ===== セグメント数スライダー ===== */
+document.getElementById('seg').addEventListener('input', e=>{
+  const v = parseFloat(e.target.value);
+  if(gl) gl.uniform1f(prog.uSectors, v);
+});
 </script>
 </body>
 </html>
