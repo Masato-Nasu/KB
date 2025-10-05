@@ -3,260 +3,143 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v28 (中心フォーカス)</title>
-<link rel="manifest" href="./manifest.json?v=28">
+<title>Silk Orbits — minimal audio-reactive</title>
+<link rel="manifest" href="./manifest.json?v=1">
 <style>
-  :root{ --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1; }
-  html,body{ height:100%;margin:0;background:var(--bg);color:var(--text);
+  :root{ --bg:#0b0c10; --panel:#0f1117; --text:#e8e9ee; --muted:#8b90a1; }
+  html,body{ height:100%; margin:0; background:var(--bg); color:var(--text);
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; }
-  .wrap{display:flex;flex-direction:column;align-items:center;gap:10px;min-height:100%}
-  .stage{position:relative;display:grid;place-items:center;width:100%;max-width:1100px;aspect-ratio:1;background:#000;border-radius:12px;cursor:pointer;overflow:hidden}
-  canvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);}
-  .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;
-    padding:12px;background:var(--panel);border-radius:12px;margin:6px;max-width:1100px}
-  .btn{appearance:none;border:0;border-radius:10px;background:#171a20;color:#eaeef8;
-    padding:10px 12px;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+  .wrap{display:flex;flex-direction:column;align-items:center;gap:12px;min-height:100%}
+  .stage{position:relative;display:grid;place-items:center;width:100%;max-width:1100px;aspect-ratio:1;background:#000;border-radius:18px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  canvas{width:100%;height:100%;display:block}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center;
+    padding:12px;background:var(--panel);border-radius:12px;margin:8px;max-width:1100px}
+  .btn{appearance:none;border:0;border-radius:12px;background:#171a20;color:#eaeef8;
+    padding:10px 14px;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
   .btn:active{transform:translateY(1px)}
-  .toggle{display:inline-flex;align-items:center;gap:8px;background:#171a20;color:#eaeef8;border-radius:10px;padding:10px 12px}
-  .muted{color:#8b90a1;font-size:12px;margin-top:-6px;text-align:center}
-  label input[type="checkbox"]{accent-color:#4e9cff}
-  .range{display:inline-flex;align-items:center;gap:8px;background:#171a20;color:#eaeef8;border-radius:10px;padding:10px 12px}
+  .range{display:inline-flex;align-items:center;gap:8px;background:#171a20;color:#eaeef8;border-radius:12px;padding:10px 12px}
   input[type="range"]{width:140px}
+  .muted{color:var(--muted);font-size:12px;margin-top:-6px;text-align:center}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="stage" id="stage"><canvas id="cv"></canvas></div>
   <div class="controls">
-    <label class="btn">🖼 画像ファイル<input id="imgFile" type="file" accept="image/*" hidden></label>
     <label class="btn">🎵 音楽フォルダ<input id="audDir" type="file" webkitdirectory directory multiple accept="audio/*" hidden></label>
     <button id="prev" class="btn">← 前</button>
     <button id="play" class="btn">▶ / ❚❚</button>
     <button id="next" class="btn">次 →</button>
-    <label class="toggle"><input id="focusCenter" type="checkbox" checked>中心フォーカス</label>
-    <div class="range">フォーカス範囲<input id="focusTight" type="range" min="0.15" max="0.80" step="0.01" value="0.35"></div>
+    <div class="range">ライン数<input id="rings" type="range" min="6" max="36" step="1" value="18"></div>
+    <div class="range">柔らかさ<input id="soft" type="range" min="0.1" max="0.9" step="0.02" value="0.5"></div>
   </div>
-  <div class="muted">v28: ベース画像の中心付近を狙って切り出し（範囲可変）。v27の軽量性は維持。</div>
+  <div class="muted">Silk Orbits v1: 画像依存を捨て、極細の発光リングで構成するミニマルなシステム。軽量・PWA・音反応。</div>
 </div>
 
 <script>
 (() => {
   const cv = document.getElementById('cv');
-  const ctx = cv.getContext('2d', { alpha: false });
-  ctx.imageSmoothingEnabled = false;
+  const ctx = cv.getContext('2d', { alpha:false });
+  ctx.imageSmoothingEnabled = true;
   const stage = document.getElementById('stage');
+  const ringsUI = document.getElementById('rings');
+  const softUI  = document.getElementById('soft');
 
-  // もとにした軽量パラメータ（v27準拠）
-  let SEGS = 48, N = 14;
-  const scaleFactor = 1.8;
-  const bleed = 6;
-  const overlap = 0.06;
-  const sliceOverlapRatio = 0.012;
-  const dprCap = 1.1;
-  const scaleCrop = 1.05;
-  const FILL_OVERSCAN = 1.3;
-
-  // 中心フォーカス設定
-  const focusCenter = document.getElementById('focusCenter');
-  const focusTight = document.getElementById('focusTight'); // 0.15〜0.80（小さいほど中心寄り）
-  let focusX = 0.5, focusY = 0.5; // 画像正規化座標でのフォーカス中心（0..1）
-
-  // 画像を中央正方形トリミング & 少し拡大
-  async function prepareImageBitmap(img){
-    const s = Math.min(img.width, img.height);
-    const sx = (img.width - s)/2, sy = (img.height - s)/2;
-    const off = new OffscreenCanvas(s, s);
-    const octx = off.getContext('2d', { alpha:false });
-    octx.imageSmoothingEnabled = false;
-    octx.translate(s/2, s/2);
-    octx.scale(scaleCrop, scaleCrop);
-    octx.drawImage(img, sx - img.width/2 + s/2, sy - img.height/2 + s/2);
-    return off.transferToImageBitmap();
-  }
-
-  let currentImage = null;
-  document.getElementById('imgFile').addEventListener('change', async e=>{
-    const f = e.target.files?.[0]; if(!f) return;
-    const url = URL.createObjectURL(f);
-    const bmp = await createImageBitmap(await (await fetch(url)).blob());
-    URL.revokeObjectURL(url);
-    currentImage = await prepareImageBitmap(bmp);
-    focusX = 0.5; focusY = 0.5; // 画像ごとに中央へ初期化
-  });
-
-  // クリックで任意のフォーカス点を指定（キャンバス座標→正規化）
-  stage.addEventListener('click', (e)=>{
-    if (!currentImage) return;
-    const rect = stage.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    // 正方形ステージ想定：そのまま正規化として扱う
-    focusX = Math.min(1, Math.max(0, x));
-    focusY = Math.min(1, Math.max(0, y));
-  });
-
-  // ===== Audio（v27準拠の軽量設定） =====
-  let audList = [], audIdx = 0;
-  const audio = new Audio();
-  audio.preload = "auto";
-  let actx, analyser, data;
-  let playing = false;
-
+  // ===== Audio minimal =====
+  let audList=[], audIdx=0, audio=new Audio(); audio.preload="auto";
+  let actx, analyser, data, playing=false;
   function ensureAudio(){
     if(actx) return;
     actx = new (window.AudioContext||window.webkitAudioContext)();
     const src = actx.createMediaElementSource(audio);
-    analyser = actx.createAnalyser();
-    analyser.fftSize = 256;
+    analyser = actx.createAnalyser(); analyser.fftSize=256;
     data = new Uint8Array(analyser.frequencyBinCount);
-    src.connect(analyser);
-    analyser.connect(actx.destination);
+    src.connect(analyser); analyser.connect(actx.destination);
   }
-
   function naturalSort(a,b){ return a.name.localeCompare(b.name,'ja',{numeric:true}); }
-
-  document.getElementById('audDir').addEventListener('change', async e=>{
+  document.getElementById('audDir').addEventListener('change', e=>{
     ensureAudio();
     audList = [...e.target.files].filter(f=>f.type.startsWith('audio/')).sort(naturalSort);
-    audIdx = 0;
-    if(audList.length){ playIndex(audIdx); }
+    audIdx=0; if(audList.length) playIndex(audIdx);
   });
-
   async function playIndex(i){
     if(!audList.length) return;
-    const file = audList[i];
-    audio.src = URL.createObjectURL(file);
-    try {
-      if (actx && actx.state !== "running") await actx.resume();
-      await audio.play();
-      playing = true;
-    } catch (err) {}
+    audio.src = URL.createObjectURL(audList[i]);
+    try{ if(actx.state!=="running") await actx.resume(); await audio.play(); playing=true; }catch(e){}
   }
-  document.getElementById('next').addEventListener('click',()=>{
-    if(!audList.length) return;
-    audIdx = (audIdx + 1) % audList.length; playIndex(audIdx);
-  });
-  document.getElementById('prev').addEventListener('click',()=>{
-    if(!audList.length) return;
-    audIdx = (audIdx - 1 + audList.length) % audList.length; playIndex(audIdx);
-  });
-  audio.addEventListener('ended', ()=>{
-    if(audList.length){ audIdx = (audIdx + 1) % audList.length; playIndex(audIdx); }
-  });
+  document.getElementById('next').addEventListener('click',()=>{ if(!audList.length)return; audIdx=(audIdx+1)%audList.length; playIndex(audIdx); });
+  document.getElementById('prev').addEventListener('click',()=>{ if(!audList.length)return; audIdx=(audIdx-1+audList.length)%audList.length; playIndex(audIdx); });
   document.getElementById('play').addEventListener('click', async ()=>{
-    ensureAudio();
-    if (actx.state !== "running") await actx.resume();
+    ensureAudio(); if(actx.state!=="running") await actx.resume();
     if(audio.paused){ await audio.play(); playing=true; } else { audio.pause(); playing=false; }
   });
 
-  // ===== Canvas sizing / DPR補正 =====
+  // ===== Canvas sizing =====
+  const dprCap=1.2;
   function fit(){
-    const s = Math.min(window.innerWidth, window.innerHeight)-40;
-    const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
-    cv.width = cv.height = Math.max(300, Math.floor(s*dpr));
-    cv.style.width = cv.style.height = Math.max(300, Math.floor(s)) + "px";
+    const s=Math.min(stage.clientWidth, stage.clientHeight);
+    const dpr=Math.min(window.devicePixelRatio||1, dprCap);
+    cv.width=cv.height=Math.max(300,Math.floor(s*dpr));
   }
-  window.addEventListener('resize',fit,{passive:true}); fit();
-  let lastDPR = window.devicePixelRatio;
-  setInterval(() => {
-    const now = window.devicePixelRatio;
-    if (now !== lastDPR) { lastDPR = now; fit(); }
-  }, 500);
+  const ro=new ResizeObserver(()=>fit()); ro.observe(stage); fit();
+  let lastDPR=window.devicePixelRatio; setInterval(()=>{ if(window.devicePixelRatio!==lastDPR){ lastDPR=window.devicePixelRatio; fit(); } }, 600);
 
-  // ===== Draw (half-rate update for lightness) =====
-  let t=0, toggle=false;
+  // ===== Render: silk orbits =====
+  let t=0;
   function draw(){
-    toggle = !toggle;
-    if(toggle){ requestAnimationFrame(draw); return; }
-
-    const w=cv.width,h=cv.height;
+    const w=cv.width,h=cv.height; const cx=w/2, cy=h/2; const R=Math.min(w,h)/2;
     ctx.clearRect(0,0,w,h);
     ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
+    ctx.save();
+    ctx.translate(cx,cy);
 
-    if(currentImage){
-      const slice=(Math.PI*2)/SEGS;
-      const diag = Math.hypot(w,h);
-      const fillRadius = (diag * FILL_OVERSCAN)/2;
-      const half = fillRadius;
-      const plateSide = half*2;
-      const step=plateSide/N;
-      const uStep=currentImage.width/N;
-      const vStep=currentImage.height/N;
-      const wedgeR=fillRadius*1.02;
-
-      // フォーカス領域（画像座標）を算出
-      const fx = currentImage.width * focusX;
-      const fy = currentImage.height * focusY;
-      const tight = parseFloat(focusTight.value); // 0.15〜0.80
-      const rangeW = currentImage.width * tight;
-      const rangeH = currentImage.height * tight;
-      const baseX = Math.max(0, Math.min(currentImage.width - rangeW, fx - rangeW/2));
-      const baseY = Math.max(0, Math.min(currentImage.height - rangeH, fy - rangeH/2));
-
-      ctx.save();
-      ctx.translate(w/2,h/2);
-      ctx.rotate(t);
-
-      for(let i=0;i<SEGS;i++){
-        ctx.save();
-        ctx.rotate(i*slice - slice*sliceOverlapRatio);
-        ctx.beginPath();
-        ctx.moveTo(0,0);
-        const dy=wedgeR*Math.tan(slice/2 * (1+sliceOverlapRatio));
-        ctx.lineTo(wedgeR,-dy);
-        ctx.lineTo(wedgeR,dy);
-        ctx.closePath();
-        ctx.clip();
-
-        const phase = Math.sin(t*0.8 + i*0.3)*0.5 + 0.5;
-        // ドリフトはフォーカス範囲内に限定
-        const driftX = (Math.sin(t*0.6 + i*0.2) * 0.5 + 0.5) * (rangeW - uStep);
-        const driftY = (Math.cos(t*0.7 + i*0.25) * 0.5 + 0.5) * (rangeH - vStep);
-
-        for(let y=0;y<N;y++){
-          for(let x=0;x<N;x++){
-            // フォーカス範囲内に収まるようにサンプル
-            const sx = baseX + Math.min(rangeW - uStep, (x/N)*(rangeW*0.98) + driftX);
-            const sy = baseY + Math.min(rangeH - vStep, (y/N)*(rangeH*0.98) + driftY);
-
-            const localAngle = t*1.2 + i*0.15 + x*0.08 + y*0.08;
-            const px = -half + x*step + step/2;
-            const py = -half + y*step + step/2;
-
-            const wDest = step * scaleFactor * (1 + overlap);
-            const hDest = step * scaleFactor * (1 + overlap);
-
-            ctx.save();
-            ctx.translate(px, py);
-            ctx.rotate(localAngle);
-            ctx.drawImage(currentImage, sx, sy, uStep, vStep,
-              -wDest/2 - bleed, -hDest/2 - bleed,
-              wDest + bleed*2, hDest + bleed*2);
-            ctx.restore();
-          }
-        }
-        ctx.restore();
-      }
-      ctx.restore();
-    }
-
-    let boost=0;
+    // audio energy
+    let low=0, mid=0, hi=0;
     if(analyser && playing){
-      analyser.getByteTimeDomainData(data);
-      let sum=0; for(let i=0;i<data.length;i++){ const d=(data[i]-128)/128; sum+=d*d; }
-      boost = (sum/data.length)*0.02;
+      analyser.getByteFrequencyData(data);
+      const n=data.length;
+      for(let i=0;i<n;i++){
+        const v=data[i]/255;
+        if(i<n*0.33) low+=v; else if(i<n*0.66) mid+=v; else hi+=v;
+      }
+      low/=n*0.33; mid/=n*0.33; hi/=n*0.34;
     }
-    t += 0.0018 + boost;
+    const ringCount = parseInt(ringsUI.value,10);
+    const softness = parseFloat(softUI.value); // 0.1..0.9
 
+    ctx.globalCompositeOperation="lighter";
+    for(let i=0;i<ringCount;i++){
+      const p=i/(ringCount-1||1);
+      const baseR = R*(0.1 + 0.85*p);
+      const wobble = Math.sin(t*0.6 + i*0.9)*R*0.01 + mid*R*0.02;
+      const r = baseR + wobble;
+      const thickness = Math.max(1, R*(0.002 + softness*0.004) * (1 + hi*0.6));
+      const hue = (200 + 80*p + 40*Math.sin(t*0.2+i*0.6))%360;
+      const alpha = 0.08 + 0.14*(1-p) + 0.2*low;
+      // draw soft ring by stacking strokes
+      ctx.strokeStyle = `hsla(${hue} 90% 60% / ${alpha})`;
+      for(let k=0;k<4;k++){
+        ctx.lineWidth = thickness * (1 + k*0.5);
+        ctx.beginPath();
+        const arcJitter = 0.006 + 0.01*(1-softness);
+        const start = (p*0.7 + Math.sin(t*0.3+i)*0.02) * Math.PI*2;
+        const end   = start + Math.PI*2 - arcJitter;
+        ctx.arc(0,0, r + k*0.5, start, end);
+        ctx.stroke();
+      }
+    }
+    ctx.globalCompositeOperation="source-over";
+    ctx.restore();
+
+    t += 0.016 + (playing? (low*0.01 + mid*0.008 + hi*0.004) : 0);
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
 })();
 </script>
 <script>
-if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=28");
-}
+// SW
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js?v=1"); }
 </script>
 </body>
 </html>
