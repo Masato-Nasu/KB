@@ -1,5 +1,5 @@
 // sw.js v4
-const CACHE = "kaleido-v4";
+const CACHE = "kaleido-v5";
 const ASSETS = [
   "./",
   "./index.html",
