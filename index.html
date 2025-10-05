@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v4</title>
-<link rel="manifest" href="./manifest.json?v=18">
+<title>Square Radiant Player v5</title>
+<link rel="manifest" href="./manifest.json?v=19">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -31,6 +31,7 @@
     align-items:center;gap:8px;cursor:pointer
   }
   .btn:active{transform:translateY(1px)}
+  .muted{color:#8b90a1;font-size:12px;margin-top:-6px}
 </style>
 </head>
 <body>
@@ -43,6 +44,7 @@
     <button id="play" class="btn">▶ / ❚❚</button>
     <button id="next" class="btn">次 →</button>
   </div>
+  <div class="muted">※ v19: 黒い切れ目対策（画像の自動トリミング & 1pxブリード）、軽量化（端末性能に応じた自動低負荷）</div>
 </div>
 
 <script>
@@ -50,15 +52,39 @@
   const cv = document.getElementById('cv');
   const ctx = cv.getContext('2d');
   const stage = document.getElementById('stage');
+  ctx.imageSmoothingEnabled = true;
+
+  // 端末性能で自動調整
+  const cores = navigator.hardwareConcurrency || 4;
+  const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+  let SEGS = isMobile ? 48 : (cores >= 8 ? 80 : 64);
+  let N = isMobile ? 16 : (cores >= 8 ? 24 : 20);
+
+  let preparedImage = null;
+  async function prepareImageBitmap(fileOrImageBitmap){
+    // 画像を正方形にクロップ（中央）し、短辺合わせのcoverでぴったり埋める
+    const img = fileOrImageBitmap;
+    const s = Math.min(img.width, img.height);
+    const sx = (img.width - s)/2;
+    const sy = (img.height - s)/2;
+    const off = new OffscreenCanvas(s, s);
+    const octx = off.getContext('2d');
+    // 端の黒が出ないように 1.02x 拡大 (=外側に2%の余白ブリード)
+    octx.translate(s/2, s/2);
+    octx.scale(1.02, 1.02);
+    octx.drawImage(img, sx - img.width/2 + s/2, sy - img.height/2 + s/2);
+    return off.transferToImageBitmap();
+  }
 
   let currentImage = null;
   document.getElementById('imgFile').addEventListener('change', async e=>{
     const f = e.target.files?.[0];
     if(!f) return;
     const url = URL.createObjectURL(f);
-    const img = await createImageBitmap(await (await fetch(url)).blob());
+    const bmp = await createImageBitmap(await (await fetch(url)).blob());
     URL.revokeObjectURL(url);
-    currentImage = img;
+    preparedImage = await prepareImageBitmap(bmp);
+    currentImage = preparedImage;
   });
 
   let audList = [], audIdx = 0;
@@ -130,7 +156,7 @@
     chime.currentTime = 0;
     chime.play();
     cv.classList.add('flash');
-    setTimeout(()=>cv.classList.remove('flash'),600);
+    setTimeout(()=>cv.classList.remove('flash'),500);
   });
 
   // shake detection
@@ -146,14 +172,16 @@
         chime.currentTime = 0;
         chime.play();
         cv.classList.add("flash");
-        setTimeout(() => cv.classList.remove("flash"), 600);
+        setTimeout(() => cv.classList.remove("flash"), 500);
       }
     }, { passive: true });
   }
 
   function fit(){
     const s = Math.min(window.innerWidth, window.innerHeight)-40;
-    cv.width = cv.height = Math.max(300,Math.floor(s));
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5); // 高DPRで負荷を抑える
+    cv.width = cv.height = Math.max(300, Math.floor(s*dpr));
+    cv.style.width = cv.style.height = Math.max(300, Math.floor(s)) + "px";
   }
   window.addEventListener('resize',fit,{passive:true});
   fit();
@@ -165,15 +193,14 @@
     ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
 
     if(currentImage){
-      const SEGS=80;
       const slice=(Math.PI*2)/SEGS;
-      const N=24;
       const plateSide=Math.min(w,h)*1.8;
       const half=plateSide/2;
       const step=plateSide/N;
       const uStep=currentImage.width/N;
       const vStep=currentImage.height/N;
       const wedgeR=Math.hypot(half,half)*1.1;
+      const bleed=1; // 1pxブリードで継ぎ目の黒を消す
 
       ctx.save();
       ctx.translate(w/2,h/2);
@@ -196,16 +223,19 @@
 
         for(let y=0;y<N;y++){
           for(let x=0;x<N;x++){
-            const sx=(x*uStep + driftX + phase*60) % currentImage.width;
-            const sy=(y*vStep + driftY + phase*80) % currentImage.height;
-            // 各小片を独立回転
-            const localAngle = t*(1.5) + i*0.2 + x*0.1 + y*0.1;
+            const sx=(x*uStep + driftX + phase*60 + currentImage.width*10) % currentImage.width;
+            const sy=(y*vStep + driftY + phase*80 + currentImage.height*10) % currentImage.height;
+
+            // micro-rotation（v18で導入）を維持
+            const localAngle = t*1.5 + i*0.2 + x*0.1 + y*0.1;
             const px = -half + x*step + step/2;
             const py = -half + y*step + step/2;
+
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(localAngle);
-            ctx.drawImage(currentImage, sx, sy, uStep, vStep, -step/2, -step/2, step, step);
+            // 1pxのブリードを加えて描画（継ぎ目の黒対策）
+            ctx.drawImage(currentImage, sx, sy, uStep, vStep, -step/2 - bleed, -step/2 - bleed, step + bleed*2, step + bleed*2);
             ctx.restore();
           }
         }
@@ -213,6 +243,7 @@
       }
       ctx.restore();
 
+      // 正方形マスク
       const side=Math.min(w,h)*0.8;
       ctx.save();
       ctx.globalCompositeOperation="destination-in";
@@ -230,7 +261,8 @@
       boost=rms*0.008;
     }
 
-    t += 0.0025 + boost;
+    // 低負荷チューニング：僅かに速度を落とす
+    t += 0.0022 + boost;
     requestAnimationFrame(draw);
   }
   draw();
@@ -238,7 +270,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=18");
+  navigator.serviceWorker.register("./sw.js?v=19");
 }
 </script>
 </body>
