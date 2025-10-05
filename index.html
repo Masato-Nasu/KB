@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v3</title>
-<link rel="manifest" href="./manifest.json?v=17">
+<title>Square Radiant Player v4</title>
+<link rel="manifest" href="./manifest.json?v=18">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -120,6 +120,7 @@
   const chime = new Audio("./Chime.mp3");
   chime.volume = 0.5;
 
+  // click (and iOS motion permission)
   stage.addEventListener('click', async ()=>{
     try {
       if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -132,6 +133,7 @@
     setTimeout(()=>cv.classList.remove('flash'),600);
   });
 
+  // shake detection
   if (window.DeviceMotionEvent) {
     let lastShake = 0;
     window.addEventListener("devicemotion", (e) => {
@@ -196,7 +198,15 @@
           for(let x=0;x<N;x++){
             const sx=(x*uStep + driftX + phase*60) % currentImage.width;
             const sy=(y*vStep + driftY + phase*80) % currentImage.height;
-            ctx.drawImage(currentImage,sx,sy,uStep,vStep,-half+x*step,-half+y*step,step,step);
+            // 各小片を独立回転
+            const localAngle = t*(1.5) + i*0.2 + x*0.1 + y*0.1;
+            const px = -half + x*step + step/2;
+            const py = -half + y*step + step/2;
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(localAngle);
+            ctx.drawImage(currentImage, sx, sy, uStep, vStep, -step/2, -step/2, step, step);
+            ctx.restore();
           }
         }
         ctx.restore();
@@ -228,7 +238,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=17");
+  navigator.serviceWorker.register("./sw.js?v=18");
 }
 </script>
 </body>
