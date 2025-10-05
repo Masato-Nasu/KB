@@ -48,7 +48,7 @@
 <script>
 /* ===== Service Worker（即時更新） ===== */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=7').then(reg => {
+  navigator.serviceWorker.register('./sw.js?v=8').then(reg => {
     if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
     reg.addEventListener('updatefound', () => {
       const sw = reg.installing;

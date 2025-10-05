@@ -35,9 +35,9 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(
       fetch(req).then(r => {
         const copy = r.clone();
-        caches.open(CACHE).then(c => c.put("./index.html?v=7", copy));
+        caches.open(CACHE).then(c => c.put("./index.html?v=8", copy));
         return r;
-      }).catch(() => caches.match("./index.html?v=7"))
+      }).catch(() => caches.match("./index.html?v=8"))
     );
     return;
   }
