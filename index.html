@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v5</title>
-<link rel="manifest" href="./manifest.json?v=19">
+<title>Square Radiant Player v6</title>
+<link rel="manifest" href="./manifest.json?v=20">
 <style>
   :root{
     --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
@@ -44,34 +44,39 @@
     <button id="play" class="btn">▶ / ❚❚</button>
     <button id="next" class="btn">次 →</button>
   </div>
-  <div class="muted">※ v19: 黒い切れ目対策（画像の自動トリミング & 1pxブリード）、軽量化（端末性能に応じた自動低負荷）</div>
+  <div class="muted">v20: 黒スリット完全対策（3pxブリード＋2〜4%オーバーラップ）、動的軽量化（FPSを見て自動調整）</div>
 </div>
 
 <script>
 (() => {
   const cv = document.getElementById('cv');
   const ctx = cv.getContext('2d');
-  const stage = document.getElementById('stage');
   ctx.imageSmoothingEnabled = true;
+  const stage = document.getElementById('stage');
 
-  // 端末性能で自動調整
+  // パラメータ（重い→軽く自動調整）
+  const baseSEGS = 80, baseN = 24;
+  let SEGS = baseSEGS, N = baseN;
+  const bleed = 3;          // px: 継ぎ目を覆うための外側描画
+  const overlap = 0.04;     // 2〜4%: タイル同士を少し重ねる
+  const dprCap = 1.2;       // 高DPR端末の内部描画倍率上限
+  const scaleCrop = 1.05;   // 画像を少し拡大して端の黒を避ける
+
+  // デバイス情報で初期ダウングレード
   const cores = navigator.hardwareConcurrency || 4;
-  const isMobile = /Mobi|Android/i.test(navigator.userAgent);
-  let SEGS = isMobile ? 48 : (cores >= 8 ? 80 : 64);
-  let N = isMobile ? 16 : (cores >= 8 ? 24 : 20);
+  const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+  if (isMobile) { SEGS = 56; N = 18; }
+  if (cores <= 4) { SEGS = Math.min(SEGS, 64); N = Math.min(N, 20); }
 
-  let preparedImage = null;
-  async function prepareImageBitmap(fileOrImageBitmap){
-    // 画像を正方形にクロップ（中央）し、短辺合わせのcoverでぴったり埋める
-    const img = fileOrImageBitmap;
+  // 画像を中央正方形にトリミング & 1.05x拡大
+  async function prepareImageBitmap(img){
     const s = Math.min(img.width, img.height);
     const sx = (img.width - s)/2;
     const sy = (img.height - s)/2;
     const off = new OffscreenCanvas(s, s);
     const octx = off.getContext('2d');
-    // 端の黒が出ないように 1.02x 拡大 (=外側に2%の余白ブリード)
     octx.translate(s/2, s/2);
-    octx.scale(1.02, 1.02);
+    octx.scale(scaleCrop, scaleCrop);
     octx.drawImage(img, sx - img.width/2 + s/2, sy - img.height/2 + s/2);
     return off.transferToImageBitmap();
   }
@@ -83,8 +88,7 @@
     const url = URL.createObjectURL(f);
     const bmp = await createImageBitmap(await (await fetch(url)).blob());
     URL.revokeObjectURL(url);
-    preparedImage = await prepareImageBitmap(bmp);
-    currentImage = preparedImage;
+    currentImage = await prepareImageBitmap(bmp);
   });
 
   let audList = [], audIdx = 0;
@@ -101,7 +105,6 @@
     data = new Uint8Array(analyser.frequencyBinCount);
     src.connect(analyser).connect(actx.destination);
   }
-
   function naturalSort(a,b){ return a.name.localeCompare(b.name,'ja',{numeric:true}); }
 
   document.getElementById('audDir').addEventListener('change', async e=>{
@@ -118,76 +121,75 @@
     audio.play();
     playing = true;
   }
-
   document.getElementById('next').addEventListener('click',()=>{
     if(!audList.length) return;
-    audIdx = (audIdx + 1) % audList.length;
-    playIndex(audIdx);
+    audIdx = (audIdx + 1) % audList.length; playIndex(audIdx);
   });
   document.getElementById('prev').addEventListener('click',()=>{
     if(!audList.length) return;
-    audIdx = (audIdx - 1 + audList.length) % audList.length;
-    playIndex(audIdx);
+    audIdx = (audIdx - 1 + audList.length) % audList.length; playIndex(audIdx);
   });
-
   audio.addEventListener('ended', ()=>{
-    if(audList.length){
-      audIdx = (audIdx + 1) % audList.length;
-      playIndex(audIdx);
-    }
+    if(audList.length){ audIdx = (audIdx + 1) % audList.length; playIndex(audIdx); }
   });
-
   document.getElementById('play').addEventListener('click', async ()=>{
     ensureAudio();
     if(actx.state==='suspended') await actx.resume();
     if(audio.paused){ audio.play(); playing=true; } else { audio.pause(); playing=false; }
   });
 
-  const chime = new Audio("./Chime.mp3");
-  chime.volume = 0.5;
+  const chime = new Audio("./Chime.mp3"); chime.volume = 0.5;
 
-  // click (and iOS motion permission)
   stage.addEventListener('click', async ()=>{
     try {
       if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
         await DeviceMotionEvent.requestPermission().catch(()=>{});
       }
     } catch(e){}
-    chime.currentTime = 0;
-    chime.play();
-    cv.classList.add('flash');
-    setTimeout(()=>cv.classList.remove('flash'),500);
+    chime.currentTime = 0; chime.play();
+    cv.classList.add('flash'); setTimeout(()=>cv.classList.remove('flash'),500);
   });
 
-  // shake detection
   if (window.DeviceMotionEvent) {
     let lastShake = 0;
     window.addEventListener("devicemotion", (e) => {
-      const acc = e.accelerationIncludingGravity;
-      if (!acc) return;
+      const acc = e.accelerationIncludingGravity; if (!acc) return;
       const x = acc.x || 0, y = acc.y || 0, z = acc.z || 0;
       const strength = Math.sqrt(x*x + y*y + z*z);
       if (strength > 18 && Date.now() - lastShake > 1000) {
         lastShake = Date.now();
-        chime.currentTime = 0;
-        chime.play();
-        cv.classList.add("flash");
-        setTimeout(() => cv.classList.remove("flash"), 500);
+        chime.currentTime = 0; chime.play();
+        cv.classList.add("flash"); setTimeout(() => cv.classList.remove("flash"), 500);
       }
     }, { passive: true });
   }
 
   function fit(){
     const s = Math.min(window.innerWidth, window.innerHeight)-40;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5); // 高DPRで負荷を抑える
+    const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
     cv.width = cv.height = Math.max(300, Math.floor(s*dpr));
     cv.style.width = cv.style.height = Math.max(300, Math.floor(s)) + "px";
   }
-  window.addEventListener('resize',fit,{passive:true});
-  fit();
+  window.addEventListener('resize',fit,{passive:true}); fit();
+
+  // 動的軽量化：平均フレーム時間が重ければ SEGS/N を自動で落とす
+  let last = performance.now(), accum = 0, count = 0;
+  function maybeAutoTune(dt){
+    accum += dt; count++;
+    if (count >= 120) {           // 約2秒ごとに判定
+      const avg = accum / count;  // ms
+      if (avg > 22) {             // <~45fpsなら軽量化
+        if (SEGS > 40) SEGS -= 8;
+        if (N > 12) N -= 2;
+      }
+      accum = 0; count = 0;
+    }
+  }
 
   let t=0;
-  function draw(){
+  function draw(now){
+    const dt = now - last; last = now; maybeAutoTune(dt);
+
     const w=cv.width,h=cv.height;
     ctx.clearRect(0,0,w,h);
     ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
@@ -200,7 +202,6 @@
       const uStep=currentImage.width/N;
       const vStep=currentImage.height/N;
       const wedgeR=Math.hypot(half,half)*1.1;
-      const bleed=1; // 1pxブリードで継ぎ目の黒を消す
 
       ctx.save();
       ctx.translate(w/2,h/2);
@@ -226,16 +227,22 @@
             const sx=(x*uStep + driftX + phase*60 + currentImage.width*10) % currentImage.width;
             const sy=(y*vStep + driftY + phase*80 + currentImage.height*10) % currentImage.height;
 
-            // micro-rotation（v18で導入）を維持
             const localAngle = t*1.5 + i*0.2 + x*0.1 + y*0.1;
             const px = -half + x*step + step/2;
             const py = -half + y*step + step/2;
 
+            const wDest = step * (1 + overlap);
+            const hDest = step * (1 + overlap);
+            const offset = step * overlap / 2;
+
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(localAngle);
-            // 1pxのブリードを加えて描画（継ぎ目の黒対策）
-            ctx.drawImage(currentImage, sx, sy, uStep, vStep, -step/2 - bleed, -step/2 - bleed, step + bleed*2, step + bleed*2);
+            ctx.drawImage(
+              currentImage, sx, sy, uStep, vStep,
+              -wDest/2 - bleed, -hDest/2 - bleed,
+              wDest + bleed*2, hDest + bleed*2
+            );
             ctx.restore();
           }
         }
@@ -261,16 +268,15 @@
       boost=rms*0.008;
     }
 
-    // 低負荷チューニング：僅かに速度を落とす
     t += 0.0022 + boost;
     requestAnimationFrame(draw);
   }
-  draw();
+  requestAnimationFrame(draw);
 })();
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=19");
+  navigator.serviceWorker.register("./sw.js?v=20");
 }
 </script>
 </body>
