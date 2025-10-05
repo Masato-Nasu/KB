@@ -3,37 +3,21 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>Square Radiant Player v12</title>
-<link rel="manifest" href="./manifest.json?v=26">
+<title>Square Radiant Player v27 (軽量安定版)</title>
+<link rel="manifest" href="./manifest.json?v=27">
 <style>
-  :root{
-    --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1;
-  }
-  html,body{
-    height:100%;margin:0;
-    background:var(--bg);color:var(--text);
-    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif;
-  }
+  :root{ --bg:#0e0f12; --panel:#111418; --text:#e8e9ee; --muted:#8b90a1; }
+  html,body{ height:100%;margin:0;background:var(--bg);color:var(--text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; }
   .wrap{display:flex;flex-direction:column;align-items:center;gap:10px;min-height:100%}
   .stage{position:relative;display:grid;place-items:center;width:100%;max-width:1100px;aspect-ratio:1;background:#000;border-radius:12px;cursor:pointer;overflow:hidden}
-  canvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);transition:filter 1.2s ease;}
-  .flash{filter:brightness(2);transition:filter 0.2s ease;}
-  .controls{
-    display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;
-    align-items:center;
-    padding:12px;background:var(--panel);
-    border-radius:12px;margin:6px;max-width:1100px;width:100%
-  }
-  .btn, .range, .toggle{
-    appearance:none;border:0;border-radius:10px;
-    background:#171a20;color:#eaeef8;
-    padding:10px 12px;display:flex;
-    align-items:center;gap:8px;cursor:pointer
-  }
-  .range{padding:8px 12px}
-  .row{display:flex;align-items:center;gap:8px}
-  input[type="range"]{width:120px}
-  .muted{color:#8b90a1;font-size:12px;margin-top:-6px}
+  canvas{max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;align-items:center;
+    padding:12px;background:var(--panel);border-radius:12px;margin:6px;max-width:1100px}
+  .btn{appearance:none;border:0;border-radius:10px;background:#171a20;color:#eaeef8;
+    padding:10px 12px;display:inline-flex;align-items:center;gap:8px;cursor:pointer}
+  .btn:active{transform:translateY(1px)}
+  .muted{color:#8b90a1;font-size:12px;margin-top:-6px;text-align:center}
 </style>
 </head>
 <body>
@@ -45,99 +29,54 @@
     <button id="prev" class="btn">← 前</button>
     <button id="play" class="btn">▶ / ❚❚</button>
     <button id="next" class="btn">次 →</button>
-
-    <div class="row range">明るさ <input id="brightness" type="range" min="0.6" max="1.6" step="0.02" value="1.00"></div>
-    <div class="row range">コントラスト <input id="contrast" type="range" min="0.6" max="1.6" step="0.02" value="1.00"></div>
-    <div class="row range">彩度 <input id="saturation" type="range" min="0.0" max="2.0" step="0.02" value="1.00"></div>
-    <label class="toggle"><input id="autoExpose" type="checkbox" checked>自動露出</label>
-    <label class="toggle"><input id="antiGap" type="checkbox" checked>アンチギャップ強化</label>
   </div>
-  <div class="muted">v26: 白飛び/黒くさび対策（露出調整・セグメント重なり強化・ズーム補正）。円形クリップなし。</div>
+  <div class="muted">v27: 軽量化（SEGS=48,N=14, 補間OFF, 1/2フレーム更新, dpr上限1.1）。音声再生を最優先。</div>
 </div>
 
 <script>
 (() => {
   const cv = document.getElementById('cv');
-  const ctx = cv.getContext('2d');
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
+  const ctx = cv.getContext('2d', { alpha: false });
+  // 高速化：補間OFF
+  ctx.imageSmoothingEnabled = false;
   const stage = document.getElementById('stage');
 
-  // パラメータ（動的に変える前提）
-  let SEGS = 72, N = 18;
-  let sliceOverlapRatio = 0.015; // 角度方向の重なり（1.5%）
+  // 軽量パラメータ
+  let SEGS = 48, N = 14;
   const scaleFactor = 1.8;
-  let bleed = 6;
-  let overlap = 0.06;
-  const dprCap = 1.4;
+  const bleed = 6;
+  const overlap = 0.06;
+  const sliceOverlapRatio = 0.012; // 角度重なり 1.2%
+  const dprCap = 1.1;              // 内部解像度を抑える
   const scaleCrop = 1.05;
-  const FILL_OVERSCAN = 1.35;
+  const FILL_OVERSCAN = 1.3;
 
-  const cores = navigator.hardwareConcurrency || 4;
-  const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
-  if (isMobile) { SEGS = 60; N = 16; }
-
-  // 画像読み込み & 露出正規化
+  // 画像を中央正方形トリミング & 少し拡大
   async function prepareImageBitmap(img){
     const s = Math.min(img.width, img.height);
-    const sx = (img.width - s)/2;
-    const sy = (img.height - s)/2;
+    const sx = (img.width - s)/2, sy = (img.height - s)/2;
     const off = new OffscreenCanvas(s, s);
-    const octx = off.getContext('2d');
+    const octx = off.getContext('2d', { alpha:false });
+    octx.imageSmoothingEnabled = false;
     octx.translate(s/2, s/2);
     octx.scale(scaleCrop, scaleCrop);
     octx.drawImage(img, sx - img.width/2 + s/2, sy - img.height/2 + s/2);
-    // 露出正規化（平均輝度を0.55付近へ）
-    if (document.getElementById('autoExpose').checked){
-      const imgData = octx.getImageData(0,0,s,s);
-      let sum=0;
-      for(let i=0;i<imgData.data.length;i+=4){
-        const r=imgData.data[i], g=imgData.data[i+1], b=imgData.data[i+2];
-        const lum = (0.2126*r + 0.7152*g + 0.0722*b)/255;
-        sum += lum;
-      }
-      const avg = sum / (s*s);
-      const target = 0.55;
-      const gain = Math.min(1.8, Math.max(0.6, target/(avg+1e-6)));
-      for(let i=0;i<imgData.data.length;i+=4){
-        imgData.data[i  ] = Math.max(0, Math.min(255, imgData.data[i]*gain));
-        imgData.data[i+1] = Math.max(0, Math.min(255, imgData.data[i+1]*gain));
-        imgData.data[i+2] = Math.max(0, Math.min(255, imgData.data[i+2]*gain));
-      }
-      octx.putImageData(imgData,0,0);
-    }
     return off.transferToImageBitmap();
   }
 
   let currentImage = null;
   document.getElementById('imgFile').addEventListener('change', async e=>{
-    const f = e.target.files?.[0];
-    if(!f) return;
+    const f = e.target.files?.[0]; if(!f) return;
     const url = URL.createObjectURL(f);
     const bmp = await createImageBitmap(await (await fetch(url)).blob());
     URL.revokeObjectURL(url);
     currentImage = await prepareImageBitmap(bmp);
   });
 
-  // 露出UI
-  const brightness = document.getElementById('brightness');
-  const contrast = document.getElementById('contrast');
-  const saturation = document.getElementById('saturation');
-  const antiGap = document.getElementById('antiGap');
-  document.getElementById('autoExpose').addEventListener('change', ()=>{
-    if (currentImage) { /* 次の読み込み時に適用。手元の画像には反映しない */ }
-  });
-  antiGap.addEventListener('change', ()=>{
-    if (antiGap.checked){
-      sliceOverlapRatio = 0.02; SEGS = Math.round(SEGS*1.1); overlap = 0.08; bleed = 8;
-    }else{
-      sliceOverlapRatio = 0.01; SEGS = Math.max(60, Math.round(SEGS/1.1)); overlap = 0.06; bleed = 6;
-    }
-  });
-
-  // オーディオ周り
+  // ===== Audio（最優先で安定化） =====
   let audList = [], audIdx = 0;
-  let audio = new Audio();
+  const audio = new Audio();
+  audio.preload = "auto";
   let actx, analyser, data;
   let playing = false;
 
@@ -146,10 +85,12 @@
     actx = new (window.AudioContext||window.webkitAudioContext)();
     const src = actx.createMediaElementSource(audio);
     analyser = actx.createAnalyser();
-    analyser.fftSize = 512;
+    analyser.fftSize = 256; // 軽量化
     data = new Uint8Array(analyser.frequencyBinCount);
-    src.connect(analyser).connect(actx.destination);
+    src.connect(analyser);
+    analyser.connect(actx.destination);
   }
+
   function naturalSort(a,b){ return a.name.localeCompare(b.name,'ja',{numeric:true}); }
 
   document.getElementById('audDir').addEventListener('change', async e=>{
@@ -159,12 +100,17 @@
     if(audList.length){ playIndex(audIdx); }
   });
 
-  function playIndex(i){
+  async function playIndex(i){
     if(!audList.length) return;
     const file = audList[i];
     audio.src = URL.createObjectURL(file);
-    audio.play();
-    playing = true;
+    try {
+      if (actx && actx.state !== "running") await actx.resume();
+      await audio.play();
+      playing = true;
+    } catch (err) {
+      console.warn("Autoplay blocked; click ▶ to start", err);
+    }
   }
   document.getElementById('next').addEventListener('click',()=>{
     if(!audList.length) return;
@@ -179,39 +125,39 @@
   });
   document.getElementById('play').addEventListener('click', async ()=>{
     ensureAudio();
-    if(actx.state==='suspended') await actx.resume();
-    if(audio.paused){ audio.play(); playing=true; } else { audio.pause(); playing=false; }
+    if (actx.state !== "running") await actx.resume();
+    if(audio.paused){ await audio.play(); playing=true; } else { audio.pause(); playing=false; }
   });
 
+  // ===== Shock flash/chime =====
   const chime = new Audio("./Chime.mp3"); chime.volume = 0.5;
   stage.addEventListener('click', async ()=>{
     try { if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') { await DeviceMotionEvent.requestPermission().catch(()=>{}); } } catch(e){}
     chime.currentTime = 0; chime.play();
-    cv.classList.add('flash'); setTimeout(()=>cv.classList.remove('flash'),500);
+    cv.style.filter = "brightness(1.8)"; setTimeout(()=>cv.style.filter="none", 200);
   });
-
   if (window.DeviceMotionEvent) {
     let lastShake = 0;
     window.addEventListener("devicemotion", (e) => {
       const acc = e.accelerationIncludingGravity; if (!acc) return;
-      const x = acc.x || 0, y = acc.y || 0, z = acc.z || 0;
+      const x = acc.x||0, y = acc.y||0, z = acc.z||0;
       const strength = Math.sqrt(x*x + y*y + z*z);
       if (strength > 18 && Date.now() - lastShake > 1000) {
         lastShake = Date.now();
         chime.currentTime = 0; chime.play();
-        cv.classList.add("flash"); setTimeout(() => cv.classList.remove("flash"), 500);
+        cv.style.filter = "brightness(1.8)"; setTimeout(()=>cv.style.filter="none", 200);
       }
     }, { passive: true });
   }
 
+  // ===== Canvas sizing =====
   function fit(){
     const s = Math.min(window.innerWidth, window.innerHeight)-40;
     const dpr = Math.min(window.devicePixelRatio || 1, dprCap);
     cv.width = cv.height = Math.max(300, Math.floor(s*dpr));
     cv.style.width = cv.style.height = Math.max(300, Math.floor(s)) + "px";
   }
-  window.addEventListener('resize',fit,{passive:true}); 
-  fit();
+  window.addEventListener('resize',fit,{passive:true}); fit();
   // DPR監視（ズーム補正）
   let lastDPR = window.devicePixelRatio;
   setInterval(() => {
@@ -219,8 +165,13 @@
     if (now !== lastDPR) { lastDPR = now; fit(); }
   }, 500);
 
-  let t=0;
+  // ===== Draw (half-rate update) =====
+  let t=0, toggle=false;
   function draw(){
+    // 半分のフレームだけ更新（音優先）
+    toggle = !toggle;
+    if(toggle){ requestAnimationFrame(draw); return; }
+
     const w=cv.width,h=cv.height;
     ctx.clearRect(0,0,w,h);
     ctx.fillStyle="#000"; ctx.fillRect(0,0,w,h);
@@ -228,7 +179,7 @@
     if(currentImage){
       const slice=(Math.PI*2)/SEGS;
       const diag = Math.hypot(w,h);
-      const fillRadius = (diag * FILL_OVERSCAN)/2;
+      const fillRadius = (diag * 1.3)/2;
       const half = fillRadius;
       const plateSide = half*2;
       const step=plateSide/N;
@@ -252,15 +203,15 @@
         ctx.clip();
 
         const phase = Math.sin(t*0.8 + i*0.3)*0.5 + 0.5;
-        const driftX = Math.sin(t*0.6 + i*0.2) * currentImage.width * (0.015 + phase*0.015);
-        const driftY = Math.cos(t*0.7 + i*0.25) * currentImage.height * (0.015 + phase*0.015);
+        const driftX = Math.sin(t*0.6 + i*0.2) * currentImage.width * (0.01 + phase*0.01);
+        const driftY = Math.cos(t*0.7 + i*0.25) * currentImage.height * (0.01 + phase*0.01);
 
         for(let y=0;y<N;y++){
           for(let x=0;x<N;x++){
-            const sx=(x*uStep + driftX + phase*60 + currentImage.width*10) % currentImage.width;
-            const sy=(y*vStep + driftY + phase*80 + currentImage.height*10) % currentImage.height;
+            const sx=(x*uStep + driftX + phase*40 + currentImage.width*10) % currentImage.width;
+            const sy=(y*vStep + driftY + phase*60 + currentImage.height*10) % currentImage.height;
 
-            const localAngle = t*1.5 + i*0.2 + x*0.1 + y*0.1;
+            const localAngle = t*1.2 + i*0.15 + x*0.08 + y*0.08;
             const px = -half + x*step + step/2;
             const py = -half + y*step + step/2;
 
@@ -270,12 +221,9 @@
             ctx.save();
             ctx.translate(px, py);
             ctx.rotate(localAngle);
-            // 色調補正（明るさ・コントラスト・彩度）をCanvasフィルタで適用
-            ctx.filter = `brightness(${brightness.value}) contrast(${contrast.value}) saturate(${saturation.value})`;
             ctx.drawImage(currentImage, sx, sy, uStep, vStep,
               -wDest/2 - bleed, -hDest/2 - bleed,
               wDest + bleed*2, hDest + bleed*2);
-            ctx.filter = "none";
             ctx.restore();
           }
         }
@@ -284,14 +232,15 @@
       ctx.restore();
     }
 
+    // 音量に合わせて僅かに回転速度を加算（軽量）
     let boost=0;
-    if(actx && analyser && playing){
+    if(analyser && playing){
       analyser.getByteTimeDomainData(data);
       let sum=0; for(let i=0;i<data.length;i++){ const d=(data[i]-128)/128; sum+=d*d; }
-      boost=Math.sqrt(sum/data.length)*0.008;
+      boost = (sum/data.length)*0.02;
     }
+    t += 0.0018 + boost;
 
-    t += 0.0022 + boost;
     requestAnimationFrame(draw);
   }
   requestAnimationFrame(draw);
@@ -299,7 +248,7 @@
 </script>
 <script>
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js?v=26");
+  navigator.serviceWorker.register("./sw.js?v=27");
 }
 </script>
 </body>
