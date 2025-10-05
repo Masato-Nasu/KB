@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>四角い穴の下で大円盤が回る（音楽連動・クリックブースト最終版）</title>
+<title>四角の対角＝円盤直径（サトル音楽連動）</title>
 <style>
   :root{--bg:#0b0d11;--fg:#e8f0ff;--muted:#9fb6d9}
   html,body{height:100%;margin:0;background:#0b0d11;color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
@@ -40,18 +40,15 @@
 
     <div class="group">
       <label>分割 N×N</label>
-      <input id="gridN" type="range" min="1" max="32" value="12">
-      <span id="gridNV">12</span>
+      <input id="gridN" type="range" min="1" max="32" value="12"><span id="gridNV">12</span>
     </div>
     <div class="group">
       <label>放射セグメント</label>
-      <input id="segs" type="range" min="6" max="96" value="36">
-      <span id="segsV">36</span>
+      <input id="segs" type="range" min="6" max="96" value="36"><span id="segsV">36</span>
     </div>
     <div class="group">
       <label>穴サイズ</label>
-      <input id="hole" type="range" min="50" max="98" value="86">
-      <span id="holeV">86%</span>
+      <input id="hole" type="range" min="50" max="98" value="86"><span id="holeV">86%</span>
     </div>
 
     <!-- 音楽：単体 or フォルダ -->
@@ -92,7 +89,7 @@ async function ensureAC(){
   if(!analyser){
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.85;
+    analyser.smoothingTimeConstant = 0.92; // ← よりサトルに
   }
   if(!musicSrcNode){
     musicSrcNode = audioCtx.createMediaElementSource(music);
@@ -102,17 +99,12 @@ async function ensureAC(){
 
 function attachClick(el){
   el.addEventListener('click', async ()=>{
-    triggerBoost(); // 動きブースト
+    triggerBoost(); // 控えめブースト
     if (!chimeOn.checked) return;
-    try{
-      await ensureAC();
-      chime.currentTime = 0;
-      await chime.play();
-    }catch(e){ console.warn('chime failed', e); }
+    try{ await ensureAC(); chime.currentTime=0; await chime.play(); }catch(e){}
   }, {passive:true});
 }
-attachClick(bg);
-attachClick(mask);
+attachClick(bg); attachClick(mask);
 
 /* ========= Playlist（数字→50音） ========= */
 const musicFile = document.getElementById('musicFile');
@@ -129,25 +121,18 @@ let playlist = []; let trackIdx = -1;
 
 function isAudio(name){ const i=name.lastIndexOf('.'); const ext=(i>=0?name.slice(i).toLowerCase():''); return AUDIO_OK.has(ext); }
 function setTrackInfo(){ trackInfo.textContent = (trackIdx>=0&&playlist[trackIdx]) ? `${trackIdx+1}/${playlist.length}  ${playlist[trackIdx].name}` : ''; }
-function loadTrack(i){
-  if(!playlist.length) return;
-  trackIdx = (i + playlist.length) % playlist.length;
-  const f = playlist[trackIdx]; music.src = URL.createObjectURL(f); setTrackInfo();
-}
-async function playCurrent(){ try{ await ensureAC(); await music.play(); }catch(e){ alert('再生できませんでした。もう一度▶を押してください。\n'+e); } }
+function loadTrack(i){ if(!playlist.length) return; trackIdx=(i+playlist.length)%playlist.length; const f=playlist[trackIdx]; music.src = URL.createObjectURL(f); setTrackInfo(); }
+async function playCurrent(){ try{ await ensureAC(); await music.play(); }catch(e){} }
 function nextTrack(){ if(!playlist.length) return; loadTrack(trackIdx+1); playCurrent(); }
 function prevTrack(){ if(!playlist.length) return; loadTrack(trackIdx-1); playCurrent(); }
 
-musicFile.addEventListener('change', async e=>{
-  const f = e.target.files[0]; if(!f) return;
-  playlist=[f]; trackIdx=-1; await ensureAC(); nextTrack();
-});
+musicFile.addEventListener('change', async e=>{ const f=e.target.files[0]; if(!f) return; playlist=[f]; trackIdx=-1; await ensureAC(); nextTrack(); });
 musicDir.addEventListener('change', async e=>{
   const files = Array.from(e.target.files).filter(f=>isAudio(f.name));
   files.sort((a,b)=>collatorJA.compare(a.name,b.name));
   playlist = files; trackIdx=-1; await ensureAC(); nextTrack();
 });
-playPause.addEventListener('click', async ()=>{ await ensureAC(); try{ if(music.paused) await music.play(); else music.pause(); }catch(e){ alert('再生がブロックされました。もう一度▶を押してください。\n'+e); } });
+playPause.addEventListener('click', async ()=>{ await ensureAC(); try{ if(music.paused) await music.play(); else music.pause(); }catch(e){} });
 prevBtn.addEventListener('click', prevTrack);
 nextBtn.addEventListener('click', nextTrack);
 music.addEventListener('ended', nextTrack);
@@ -165,10 +150,9 @@ function coverSrc(iw,ih,dw,dh,dx=0,dy=0,zoom=1){
 }
 
 let driftBoost=0;            // 0→1
-const boostPower=1.6;        // 動きの強さ
-let boostUntil=0;            // ブースト終了時刻(ms)
-
-function triggerBoost(){ driftBoost=1; boostUntil=performance.now()+1800; }
+const boostPower=0.5;        // 控えめ
+let boostUntil=0;
+function triggerBoost(){ driftBoost=1; boostUntil=performance.now()+800; } // 短め
 
 function rebuildPattern(){
   if(!baseImg) return;
@@ -176,12 +160,12 @@ function rebuildPattern(){
   if(!pat){ pat=document.createElement('canvas'); pctx=pat.getContext('2d'); }
   pat.width=w; pat.height=h;
 
-  // ドリフト＆ズーム（ブーストで強化）
+  // ドリフト＆ズーム（控えめブースト）
   const t=performance.now();
-  const bf = 1 + 0.9*driftBoost*boostPower;
-  const dx=Math.sin(t*0.00023*bf)*0.9*bf;
-  const dy=Math.cos(t*0.00019*bf)*0.9*bf;
-  const zoom=1 + (0.06*bf)*Math.sin(t*0.00011*bf);
+  const bf = 1 + 0.6*driftBoost*boostPower;
+  const dx=Math.sin(t*0.00022*bf)*0.7*bf;
+  const dy=Math.cos(t*0.00018*bf)*0.7*bf;
+  const zoom=1 + (0.04*bf)*Math.sin(t*0.00010*bf);
 
   const src=coverSrc(baseImg.width, baseImg.height, w, h, dx, dy, zoom);
 
@@ -209,15 +193,10 @@ function draw(){
     const cx=w/2, cy=h/2;
     const slice=(Math.PI*2)/SEGS;
 
-    // 穴の一辺（px）
-    const holeSide = Math.min(w,h) * (HOLE/100);
-    // 穴の対角の半分（これ以上なら四隅に必ず届く）
-    const rByHole = holeSide / Math.SQRT2 + 12;     // 12pxの余裕マージン
-    // キャンバス対角基準（過度に小さくならない下限）
-    const rByCanvas = Math.hypot(w,h) * 0.64;       // 好みで 0.60〜0.70
-    // 最終半径
-    const R = Math.max(rByHole, rByCanvas);
-    const wedgeR = Math.hypot(w,h);
+    // 穴の一辺 → 円盤半径は「ぴったり」対角/2
+    const side = Math.min(w,h) * (HOLE/100);
+    const R = side / Math.SQRT2;        // ← 指定どおり厳密
+    const wedgeR = R * 1.25;            // 扇は少し長く
 
     bk.save();
     bk.translate(cx,cy);
@@ -250,25 +229,25 @@ function draw(){
   mk.fillRect((w-side)/2,(h-side)/2,side,side);
   mk.restore();
 
-  // 音楽の振幅 → 回転速度
-  const baseSpeed = 0.0025*(36/Math.max(12,SEGS));
+  // 回転：サトル設定
+  const baseSpeed = 0.0018*(36/Math.max(12,SEGS)); // ややゆっくり
   let audioBoost = 0;
   if(analyser){
     const bins = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(bins);
-    const n = Math.max(8, Math.floor(bins.length*0.12)); // 低域寄り
+    const n = Math.max(8, Math.floor(bins.length*0.10));
     let s=0; for(let i=0;i<n;i++) s+=bins[i];
-    const rms = s/(n*255);           // 0..1
-    audioBoost = rms * 0.10;         // 反応を強めに
+    const rms = s/(n*255);
+    audioBoost = rms * 0.015;          // ← ごく控えめ
   }
-  const clickBoost = 0.06*driftBoost; // クリック一時加速
+  const clickBoost = 0.008*driftBoost; // クリックの回転寄与も少しだけ
   angle += baseSpeed + audioBoost + clickBoost;
 
   // ブースト減衰
   const now = performance.now();
   if(driftBoost>0){
     if(now>boostUntil) driftBoost=0;
-    else driftBoost = Math.max(0, driftBoost - 0.018);
+    else driftBoost = Math.max(0, driftBoost - 0.035);
   }
 
   requestAnimationFrame(tick);
