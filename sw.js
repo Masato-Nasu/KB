@@ -1,9 +1,9 @@
-// sw.js v1 for Baby Shapes Neon
-const CACHE='baby-shapes-neon-v1';
+// sw.js v1.2 for Baby Shapes Neon
+const CACHE='baby-shapes-neon-v1-2';
 const ASSETS=[
   './',
-  './index.html?v=1',
-  './manifest.json?v=1',
+  './index.html?v=1.2',
+  './manifest.json?v=1.2',
   './icon-192.png',
   './icon-512.png',
   './Chime.mp3'
@@ -21,7 +21,7 @@ self.addEventListener('activate',e=>{
 self.addEventListener('fetch',e=>{
   const req=e.request;
   if(req.mode==='navigate'){
-    e.respondWith(fetch(req).catch(()=>caches.match('./index.html?v=1')));
+    e.respondWith(fetch(req).catch(()=>caches.match('./index.html?v=1.2')));
     return;
   }
   e.respondWith(caches.match(req).then(cached=>cached || fetch(req).then(r=>{
