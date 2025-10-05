@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Square Kaleidoscope — v12</title>
+<title>Square Kaleidoscope — v12.1</title>
 
-<link rel="manifest" href="./manifest.json?v=12">
+<link rel="manifest" href="./manifest.json?v=12.1">
 <meta name="theme-color" content="#000000">
 <link rel="icon" href="./icon-192.png">
 <link rel="apple-touch-icon" href="./icon-192.png">
@@ -24,7 +24,7 @@
   #install{position:fixed;top:10px;right:10px}
   #dropHint{position:fixed;inset:auto auto 64px 50%;transform:translateX(-50%);color:#bbb;font:12px/1.4 sans-serif;z-index:3;opacity:.9}
   label{display:flex;gap:6px;align-items:center}
-  #plist{position:fixed;right:10px;bottom:80px;max-height:45vh;overflow:auto;background:#111a;color:#fff;border:1px solid #333;border-radius:10px;padding:8px 10px;font:12px/1.5 sans-serif;min-width:220px}
+  #plist{position:fixed;right:10px;bottom:80px;max-height:45vh;overflow:auto;background:#111a;color:#fff;border:1px solid #333;border-radius:10px;padding:8px 10px;font:12px/1.5 sans-serif;min-width:260px}
   #plist b{display:block;margin:.2em 0 .4em;color:#9cf}
   #plist li{list-style:none;padding:2px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
   #plist li.playing{color:#0f0}
@@ -32,39 +32,58 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="status">booting… (v12)</div>
+<div id="status">booting… (v12.1)</div>
 
 <div id="ui">
   <input type="file" id="img" accept="image/*" title="画像ファイルを選択">
   <button id="reset">画像クリア</button>
+  <button id="testImg">📷 内蔵テスト画像</button>
 
   <button id="enable">🔊 センサーと音を有効化</button>
 
-  <!-- ✅ フォルダ選択 + 複数 -->
+  <!-- フォルダ選択 + 複数 -->
   <input type="file" id="music" accept="audio/*" webkitdirectory multiple title="音楽フォルダ／複数ファイル">
   <button id="prev">⏮</button>
   <button id="play">▶︎/⏸</button>
   <button id="next">⏭</button>
+  <button id="testAud">🔈 内蔵テスト音</button>
 
   <label>セグメント <input id="seg" type="range" min="8" max="96" step="2" value="32"></label>
 
   <button id="install" hidden>+ インストール</button>
+  <button id="hard" title="SWとキャッシュ全消し">♻ Hard Reset</button>
 </div>
 <ul id="plist" hidden>
   <b>Playlist</b>
 </ul>
 <div id="dropHint">🖼 画像はドラッグ＆ドロップでも読み込めます</div>
 
-<audio id="chime" src="./Chime.m4a?v=12" preload="auto" playsinline></audio>
+<audio id="chime" src="./Chime.m4a?v=12.1" preload="auto" playsinline></audio>
 <audio id="player" preload="none" playsinline></audio>
 
 <script>
 /* ===== constants ===== */
-const APP_VERSION = "v12";
+const APP_VERSION = "v12.1";
+
+/* ===== Hard Reset（SW/Cache全消し→強制再読込） ===== */
+async function hardReset(){
+  try{
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    localStorage.clear(); sessionStorage.clear();
+  }catch(e){}
+  location.replace('./index.html?v=12.1&ts=' + Date.now());
+}
 
 /* ===== Service Worker（即時更新＆自動リロード） ===== */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js?v=12').then(reg => {
+  navigator.serviceWorker.register('./sw.js?v=12.1').then(reg => {
     if (reg.waiting) reg.waiting.postMessage({type:'SKIP_WAITING'});
     reg.addEventListener('updatefound', () => {
       const sw = reg.installing;
@@ -90,7 +109,7 @@ installBtn.onclick=async()=>{installBtn.hidden=true;if(deferredPrompt){deferredP
 /* ===== basic ===== */
 const canvas=document.getElementById('c'),ctx2d=canvas.getContext('2d'),statusEl=document.getElementById('status');
 const dpr=Math.min(devicePixelRatio||1,2);
-function log(t){statusEl.textContent=t}
+function log(t){ statusEl.textContent=t; try{ console.log('[Kaleido v12.1]', t);}catch(e){} }
 function fit(){canvas.width=Math.floor(innerWidth*dpr);canvas.height=Math.floor(innerHeight*dpr);if(gl){gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(prog.uRes,canvas.width,canvas.height);}}
 addEventListener('resize',fit);fit();
 function checker(){const w=canvas.width,h=canvas.height,s=32;for(let y=0;y<h;y+=s)for(let x=0;x<w;x+=s){ctx2d.fillStyle=((x+y)/s)%2?'#222':'#444';ctx2d.fillRect(x,y,s,s);}}
@@ -134,7 +153,7 @@ function initGL(){
   gl.uniform1f(prog.uSectors,parseFloat(document.getElementById('seg').value));
   gl.uniform1i(prog.uTex,0);gl.uniform1f(prog.uHasTex,0.0);
   gl.viewport(0,0,canvas.width,canvas.height);gl.uniform2f(prog.uRes,canvas.width,canvas.height);
-  log('WebGL OK (v12)');
+  log('WebGL OK (v12.1)');
 }
 let startT=performance.now();
 function loop(){const t=(performance.now()-startT)/1000;if(gl){gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.uniform1f(prog.uTime,t);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);}else checker();requestAnimationFrame(loop);}requestAnimationFrame(loop);
@@ -164,15 +183,20 @@ document.getElementById('reset').onclick=()=>{img2D=null;if(gl)gl.uniform1f(prog
 addEventListener('dragover',e=>e.preventDefault());
 addEventListener('drop',e=>{e.preventDefault();const f=e.dataTransfer.files?.[0];if(!f||!f.type.startsWith('image/'))return;
   const u=URL.createObjectURL(f);const i=new Image();i.onload=()=>{makeTex(i);URL.revokeObjectURL(u);} ;i.src=u;});
+document.getElementById('testImg').onclick=()=>{
+  const i=new Image(); i.crossOrigin='anonymous';
+  i.onload=()=>makeTex(i); i.onerror=()=>log('内蔵画像の読み込み失敗');
+  i.src='./icon-512.png?v=12.1';
+};
 
-/* ===== オーディオ（チャイム＝選択音源/未選択は内蔵） ＋ プレイリスト ===== */
+/* ===== オーディオ（チャイム＝選択音源/未選択は内蔵）＋プレイリスト ===== */
 const ch=document.getElementById('chime'),pl=document.getElementById('player');let enabled=false;
 const musicInput=document.getElementById('music');const plist=document.getElementById('plist');
 let tracks=[], idx=-1;
 
 document.getElementById('enable').onclick=async()=>{
   try{
-    if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission();
+    if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission().catch(()=>{});
     await ch.play(); ch.pause(); ch.currentTime=0; enabled=true; log('音OK（クリック/シェイク可）');
   }catch(e){ log('音失敗: '+e.message); }
 };
@@ -185,7 +209,6 @@ addEventListener('devicemotion',e=>{ const a=e.accelerationIncludingGravity||{x:
 musicInput.onchange=e=>{
   tracks=[...e.target.files].filter(f=>f.type.startsWith('audio/'));
   if(!tracks.length){ log('音源なし'); plist.hidden=true; return; }
-  // UI更新
   plist.hidden=false; plist.innerHTML='<b>Playlist</b>';
   tracks.forEach((f,i)=>{ const li=document.createElement('li'); li.textContent=f.webkitRelativePath||f.name; li.onclick=()=>start(i); plist.appendChild(li); });
   start(0);
@@ -193,7 +216,7 @@ musicInput.onchange=e=>{
 
 function start(i){
   idx=i; const f=tracks[i]; const u=URL.createObjectURL(f);
-  pl.src=u; ch.src=u; // チャイムも同音源に
+  pl.src=u; ch.src=u; // チャイムも同音源
   pl.onloadedmetadata=()=>log('音源: '+(f.name||'audio'));
   highlight();
   pl.onended=()=>next();
@@ -209,8 +232,24 @@ document.getElementById('play').onclick=()=>{ if(!pl.src) return log('音源を�
 document.getElementById('next').onclick=next;
 document.getElementById('prev').onclick=prev;
 
+document.getElementById('testAud').onclick=async ()=>{
+  try{
+    ch.src='./Chime.m4a?v=12.1';
+    pl.src='./Chime.m4a?v=12.1';
+    if(!enabled){
+      try{ if(typeof DeviceMotionEvent!=='undefined'&&DeviceMotionEvent.requestPermission) await DeviceMotionEvent.requestPermission().catch(()=>{}); }catch(e){}
+      enabled=true;
+    }
+    await pl.play();
+    log('内蔵テスト音 再生OK');
+  }catch(e){ log('内蔵テスト音 失敗: '+e.message); }
+};
+
 /* ===== セグメント ===== */
 document.getElementById('seg').oninput=e=>{ if(gl) gl.uniform1f(prog.uSectors,parseFloat(e.target.value)); };
+
+/* ===== Hard Reset ボタン ===== */
+document.getElementById('hard').onclick=hardReset;
 </script>
 </body>
 </html>

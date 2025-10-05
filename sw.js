@@ -1,14 +1,14 @@
-// sw.js v12 — 確実更新・自動切替
-const SW_VERSION = "v12";
+// sw.js v12.1 — 確実更新・自動切替
+const SW_VERSION = "v12.1";
 const CACHE = "kaleido-" + SW_VERSION;
 
 const ASSETS = [
   "./",
-  "./index.html?v=12",
-  "./manifest.json?v=12",
+  "./index.html?v=12.1",
+  "./manifest.json?v=12.1",
   "./icon-192.png",
   "./icon-512.png",
-  "./Chime.m4a?v=12"
+  "./Chime.m4a?v=12.1"
 ];
 
 self.addEventListener("install", e => {
@@ -38,9 +38,9 @@ self.addEventListener("fetch", e => {
     e.respondWith(
       fetch(req).then(r => {
         const copy = r.clone();
-        caches.open(CACHE).then(c => c.put("./index.html?v=12", copy));
+        caches.open(CACHE).then(c => c.put("./index.html?v=12.1", copy));
         return r;
-      }).catch(() => caches.match("./index.html?v=12"))
+      }).catch(() => caches.match("./index.html?v=12.1"))
     );
     return;
   }
