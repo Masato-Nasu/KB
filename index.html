@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
-<title>四角い穴の下で大円盤が回る（音楽連動・クリックブースト）</title>
+<title>四角い穴の下で大円盤が回る（音楽連動・クリックブースト最終版）</title>
 <style>
   :root{--bg:#0b0d11;--fg:#e8f0ff;--muted:#9fb6d9}
   html,body{height:100%;margin:0;background:#0b0d11;color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
@@ -54,7 +54,7 @@
       <span id="holeV">86%</span>
     </div>
 
-    <!-- 音楽：単体 or フォルダ（どちらでも） -->
+    <!-- 音楽：単体 or フォルダ -->
     <input id="musicFile" type="file" accept="audio/*">
     <label for="musicFile" class="btn file">🎵 音楽ファイル</label>
     <input id="musicDir" type="file" webkitdirectory multiple accept="audio/*">
@@ -64,7 +64,7 @@
     <span id="trackInfo" class="pill"></span>
     <button id="playPause" class="btn">▶ 再生/一時停止</button>
 
-    <label class="group"><input type="checkbox" id="chimeOn" checked> 🔔クリックでChime</label>
+    <label class="group"><input type="checkbox" id="chimeOn" checked> 🔔キャンバスクリックでChime</label>
   </div>
 </div>
 
@@ -99,17 +99,20 @@ async function ensureAC(){
     musicSrcNode.connect(analyser); analyser.connect(audioCtx.destination);
   }
 }
-function attachClickChime(el){
-  el.addEventListener('click', async () => {
-    if(!chimeOn.checked) return;
-    await ensureAC();
-    chime.currentTime = 0;
-    try{ await chime.play(); }catch{}
-    triggerBoost(); // クリック時の動きブースト
-  });
+
+function attachClick(el){
+  el.addEventListener('click', async ()=>{
+    triggerBoost(); // 動きブースト
+    if (!chimeOn.checked) return;
+    try{
+      await ensureAC();
+      chime.currentTime = 0;
+      await chime.play();
+    }catch(e){ console.warn('chime failed', e); }
+  }, {passive:true});
 }
-attachClickChime(bg);
-attachClickChime(mask);
+attachClick(bg);
+attachClick(mask);
 
 /* ========= Playlist（数字→50音） ========= */
 const musicFile = document.getElementById('musicFile');
@@ -131,17 +134,20 @@ function loadTrack(i){
   trackIdx = (i + playlist.length) % playlist.length;
   const f = playlist[trackIdx]; music.src = URL.createObjectURL(f); setTrackInfo();
 }
-async function playCurrent(){ await ensureAC(); try{ await music.play(); }catch{} }
+async function playCurrent(){ try{ await ensureAC(); await music.play(); }catch(e){ alert('再生できませんでした。もう一度▶を押してください。\n'+e); } }
 function nextTrack(){ if(!playlist.length) return; loadTrack(trackIdx+1); playCurrent(); }
 function prevTrack(){ if(!playlist.length) return; loadTrack(trackIdx-1); playCurrent(); }
 
-musicFile.addEventListener('change', e=>{ const f = e.target.files[0]; if(!f) return; playlist=[f]; trackIdx=-1; nextTrack(); });
-musicDir.addEventListener('change', e=>{
+musicFile.addEventListener('change', async e=>{
+  const f = e.target.files[0]; if(!f) return;
+  playlist=[f]; trackIdx=-1; await ensureAC(); nextTrack();
+});
+musicDir.addEventListener('change', async e=>{
   const files = Array.from(e.target.files).filter(f=>isAudio(f.name));
   files.sort((a,b)=>collatorJA.compare(a.name,b.name));
-  playlist = files; trackIdx=-1; nextTrack();
+  playlist = files; trackIdx=-1; await ensureAC(); nextTrack();
 });
-playPause.addEventListener('click', async ()=>{ await ensureAC(); if(music.paused) await music.play(); else music.pause(); });
+playPause.addEventListener('click', async ()=>{ await ensureAC(); try{ if(music.paused) await music.play(); else music.pause(); }catch(e){ alert('再生がブロックされました。もう一度▶を押してください。\n'+e); } });
 prevBtn.addEventListener('click', prevTrack);
 nextBtn.addEventListener('click', nextTrack);
 music.addEventListener('ended', nextTrack);
@@ -158,9 +164,11 @@ function coverSrc(iw,ih,dw,dh,dx=0,dy=0,zoom=1){
   return {sx,sy,sw:vw,sh:vh};
 }
 
-let driftBoost=0; // クリックブースト（0→1）で減衰
-function triggerBoost(){ driftBoost = 1; boostUntil = performance.now() + 1200; }
-let boostUntil = 0;
+let driftBoost=0;            // 0→1
+const boostPower=1.6;        // 動きの強さ
+let boostUntil=0;            // ブースト終了時刻(ms)
+
+function triggerBoost(){ driftBoost=1; boostUntil=performance.now()+1800; }
 
 function rebuildPattern(){
   if(!baseImg) return;
@@ -170,10 +178,10 @@ function rebuildPattern(){
 
   // ドリフト＆ズーム（ブーストで強化）
   const t=performance.now();
-  const boostFactor = 1 + 0.9*driftBoost; // 最大1.9倍
-  const dx=Math.sin(t*0.00023*boostFactor)*0.9*boostFactor;
-  const dy=Math.cos(t*0.00019*boostFactor)*0.9*boostFactor;
-  const zoom=1 + (0.06*boostFactor)*Math.sin(t*0.00011*boostFactor);
+  const bf = 1 + 0.9*driftBoost*boostPower;
+  const dx=Math.sin(t*0.00023*bf)*0.9*bf;
+  const dy=Math.cos(t*0.00019*bf)*0.9*bf;
+  const zoom=1 + (0.06*bf)*Math.sin(t*0.00011*bf);
 
   const src=coverSrc(baseImg.width, baseImg.height, w, h, dx, dy, zoom);
 
@@ -201,8 +209,14 @@ function draw(){
     const cx=w/2, cy=h/2;
     const slice=(Math.PI*2)/SEGS;
 
-    // 円盤：対角/2 を十分超える
-    const R = Math.hypot(w,h)*0.62;      // ← もっと大きく
+    // 穴の一辺（px）
+    const holeSide = Math.min(w,h) * (HOLE/100);
+    // 穴の対角の半分（これ以上なら四隅に必ず届く）
+    const rByHole = holeSide / Math.SQRT2 + 12;     // 12pxの余裕マージン
+    // キャンバス対角基準（過度に小さくならない下限）
+    const rByCanvas = Math.hypot(w,h) * 0.64;       // 好みで 0.60〜0.70
+    // 最終半径
+    const R = Math.max(rByHole, rByCanvas);
     const wedgeR = Math.hypot(w,h);
 
     bk.save();
@@ -236,35 +250,31 @@ function draw(){
   mk.fillRect((w-side)/2,(h-side)/2,side,side);
   mk.restore();
 
-  // 音楽の振幅 → 回転速度・ブースト減衰
-  const baseSpeed = 0.0025*(36/Math.max(12,SEGS)); // ベース速度
+  // 音楽の振幅 → 回転速度
+  const baseSpeed = 0.0025*(36/Math.max(12,SEGS));
   let audioBoost = 0;
   if(analyser){
     const bins = new Uint8Array(analyser.frequencyBinCount);
     analyser.getByteFrequencyData(bins);
-    // 低域〜中低域（〜200Hzくらい）をざっくり平均
-    const n = Math.max(8, Math.floor(bins.length*0.1));
+    const n = Math.max(8, Math.floor(bins.length*0.12)); // 低域寄り
     let s=0; for(let i=0;i<n;i++) s+=bins[i];
-    const rms = s/(n*255); // 0..1
-    audioBoost = rms*0.06; // 音で最大+0.06 rad/frame程度
+    const rms = s/(n*255);           // 0..1
+    audioBoost = rms * 0.10;         // 反応を強めに
   }
-  const clickBoost = 0.05*driftBoost; // クリック一時加速
+  const clickBoost = 0.06*driftBoost; // クリック一時加速
   angle += baseSpeed + audioBoost + clickBoost;
 
   // ブースト減衰
   const now = performance.now();
   if(driftBoost>0){
     if(now>boostUntil) driftBoost=0;
-    else driftBoost = Math.max(0, driftBoost - 0.02); // スッと減衰
+    else driftBoost = Math.max(0, driftBoost - 0.018);
   }
 
   requestAnimationFrame(tick);
 }
 
-function tick(){
-  if(baseImg) rebuildPattern();
-  draw();
-}
+function tick(){ if(baseImg) rebuildPattern(); draw(); }
 
 /* ========= Fit ========= */
 function fit(){
