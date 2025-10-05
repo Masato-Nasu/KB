@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Square Kaleidoscope — PWA + Chime + Music</title>
+<title>Square Kaleidoscope — Radial + Square Crop</title>
 
 <link rel="manifest" href="./manifest.json?v=4">
 <meta name="theme-color" content="#0f0f12">
@@ -27,14 +27,10 @@
 <div id="status">booting…</div>
 
 <div id="ui">
-  <!-- 画像 -->
   <input type="file" id="img" accept="image/*">
   <button id="reset" title="既定模様に戻す">画像クリア</button>
 
-  <!-- 音（センサー＆チャイム） -->
   <button id="enable">🔊 センサーと音を有効化</button>
-
-  <!-- 音楽プレーヤー -->
   <input type="file" id="music" accept="audio/*">
   <button id="play">▶︎ 再生</button>
 
@@ -42,9 +38,8 @@
 </div>
 <div id="dropHint">🖼 画像はドラッグ＆ドロップでも読み込めます</div>
 
-<!-- チャイム：**大文字Cに統一** -->
+<!-- 注意: 大文字C に統一 -->
 <audio id="chime" src="./Chime.m4a?v=4" preload="auto" playsinline></audio>
-<!-- ユーザー音源プレーヤー -->
 <audio id="player" preload="none" playsinline></audio>
 
 <script>
@@ -58,19 +53,16 @@ if ('serviceWorker' in navigator) {
 /* ===== PWA Install ===== */
 let deferredPrompt;
 const installBtn = document.getElementById('install');
-window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault(); deferredPrompt=e; installBtn.hidden=false;
-});
-installBtn.onclick = async () => {
-  installBtn.hidden=true; if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; }
-};
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt=e; installBtn.hidden=false; });
+installBtn.onclick = async () => { installBtn.hidden=true; if(deferredPrompt){ deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; } };
 
-/* ===== Canvas & 2D/GL ===== */
+/* ===== Canvas & Resolution ===== */
 const canvas = document.getElementById('c'), statusEl = document.getElementById('status');
 const dpr=Math.min(devicePixelRatio||1,2);
-function fit(){ canvas.width=Math.floor(innerWidth*dpr); canvas.height=Math.floor(innerHeight*dpr); }
+function fit(){ canvas.width=Math.floor(innerWidth*dpr); canvas.height=Math.floor(innerHeight*dpr); if(gl){ gl.viewport(0,0,canvas.width,canvas.height); gl.uniform2f(prog.uRes, canvas.width, canvas.height); } }
 addEventListener('resize', fit); fit();
 
+/* ===== 2D fallback base ===== */
 const ctx2d = canvas.getContext('2d');
 function drawChecker2D(){
   const w=canvas.width,h=canvas.height,c=16,s=Math.ceil(Math.min(w,h)/c);
@@ -81,6 +73,7 @@ function drawChecker2D(){
 drawChecker2D();
 statusEl.textContent='2D 起動 — WebGL 初期化中…';
 
+/* ===== WebGL (radial + square crop) ===== */
 let gl, prog, tex=null, start=performance.now(), img2D=null;
 function initGL(){
   const opts = {alpha:false,antialias:true};
@@ -88,17 +81,37 @@ function initGL(){
   if(!gl) throw new Error('WebGL 初期化に失敗（ブラウザ設定/環境）');
 
   const vs=`attribute vec2 aPos;varying vec2 vUv;void main(){vUv=(aPos+1.0)*0.5;gl_Position=vec4(aPos,0.0,1.0);}`;
-  const fs=`precision mediump float;varying vec2 vUv;uniform float uTime,uSectors,uHasTex;uniform sampler2D uTex;
-  vec3 checker(vec2 uv){float s=16.0;vec2 c=floor(uv*s);float m=mod(c.x+c.y,2.0);float v=mix(0.32,0.10,m);return vec3(v);}
-  void main(){vec2 uv=vUv-0.5;float r=length(uv);float a=atan(uv.y,uv.x);a=mod(a*uSectors/2.0, 3.14159265358979323846264);
-  vec2 p=vec2(cos(a),sin(a))*r;float breathe=1.0+0.25*sin(uTime*0.8);vec2 t=p*breathe+0.5;
-  vec3 col=(uHasTex>0.5)?texture2D(uTex,t).rgb:checker(t);gl_FragColor=vec4(col,1.0);}`;
+  /* ★ 放射状＋正方形断ち切り（mirror-tile） */
+  const fs=`
+  precision mediump float;
+  varying vec2 vUv;
+  uniform float uTime, uSectors, uHasTex;
+  uniform sampler2D uTex;
+  uniform vec2 uRes;
+  vec2 mirror(vec2 x){ return abs(fract(x)-0.5)*2.0; } // ミラータイル
 
-  function sh(tp,src){
-    const s=gl.createShader(tp); gl.shaderSource(s,src); gl.compileShader(s);
-    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error('Shader compile: '+gl.getShaderInfoLog(s));
-    return s;
-  }
+  void main(){
+    // 画面中心へ - アスペクト補正
+    vec2 uv = (vUv - 0.5);
+    uv.x *= uRes.x / uRes.y;
+
+    float sector = 6.28318530718 / uSectors;     // 2π/N
+    float ang = atan(uv.y, uv.x);
+    // 角度を [0,sector) に折り畳み（奇数セクタで反転）
+    float k = floor(ang / sector);
+    float a = mod(ang, sector);
+    if (mod(k, 2.0) > 0.5) a = sector - a;
+
+    float r = length(uv);
+    vec2 dir = vec2(cos(a), sin(a));
+    float breathe = 1.0 + 0.25*sin(uTime*0.8);
+    vec2 t = dir * r * breathe + 0.5;            // ← 正方形全域に展開
+    vec3 col = (uHasTex>0.5) ? texture2D(uTex, mirror(t)).rgb
+                              : vec3(0.25+0.25*sin(10.0*t.x),0.25+0.25*sin(10.0*t.y),0.3);
+    gl_FragColor = vec4(col,1.0);
+  }`;
+
+  function sh(tp,src){ const s=gl.createShader(tp); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error('Shader compile: '+gl.getShaderInfoLog(s)); return s; }
   const vsObj=sh(gl.VERTEX_SHADER,vs), fsObj=sh(gl.FRAGMENT_SHADER,fs);
   prog=gl.createProgram(); gl.attachShader(prog,vsObj); gl.attachShader(prog,fsObj); gl.linkProgram(prog);
   if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error('Program link: '+gl.getProgramInfoLog(prog));
@@ -112,13 +125,16 @@ function initGL(){
   prog.uSectors=gl.getUniformLocation(prog,'uSectors');
   prog.uTex=gl.getUniformLocation(prog,'uTex');
   prog.uHasTex=gl.getUniformLocation(prog,'uHasTex');
+  prog.uRes=gl.getUniformLocation(prog,'uRes');
 
   gl.uniform1f(prog.uSectors,16.0);
   gl.uniform1f(prog.uHasTex,0.0);
   gl.uniform1i(prog.uTex,0);
   gl.viewport(0,0,canvas.width,canvas.height);
-  statusEl.textContent='WebGL 初期化OK — 画像未選択';
+  gl.uniform2f(prog.uRes, canvas.width, canvas.height);
+  statusEl.textContent='WebGL 初期化OK — 放射状/正方形断ち切り';
 }
+
 function makeTextureFromImage(img){
   if(!gl){ img2D = img; statusEl.textContent='✅ 画像ロード完了（2Dモード）'; return; }
   if(!tex) tex=gl.createTexture();
@@ -133,24 +149,22 @@ function makeTextureFromImage(img){
   gl.uniform1f(prog.uHasTex,1.0);
   statusEl.textContent='✅ 画像ロード完了（WebGL）';
 }
+
 function render(){
   const t=(performance.now()-start)/1000;
   if(gl){
-    gl.viewport(0,0,canvas.width,canvas.height);
     gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform1f(prog.uTime,t);
     gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
   }else{
-    // 2D フォールバック：画像がある時は簡易「正方形万華鏡風」にタイル
+    // 2Dフォールバック（簡易タイル）
     const w=canvas.width,h=canvas.height;
     ctx2d.clearRect(0,0,w,h);
     if(img2D){
-      const scale=1.0+0.1*Math.sin(t*0.8);
-      const tile = Math.max(128, Math.min(w,h)/4);
+      const scale=1.0+0.1*Math.sin(t*0.8), tile = Math.max(128, Math.min(w,h)/4);
       for(let y=0;y<h;y+=tile){
         for(let x=0;x<w;x+=tile){
           ctx2d.save();
-          // タイルごとに水平/垂直反転して万華鏡風
           if(((x/tile)|0)&1) ctx2d.scale(-1,1), ctx2d.translate(-x*2-tile,0);
           if(((y/tile)|0)&1) ctx2d.scale(1,-1), ctx2d.translate(0,-y*2-tile);
           const cw=tile*scale, ch=tile*scale;
@@ -158,18 +172,14 @@ function render(){
           ctx2d.restore();
         }
       }
-    }else{
-      drawChecker2D();
-    }
+    }else{ drawChecker2D(); }
   }
   requestAnimationFrame(render);
 }
 requestAnimationFrame(render);
-try{ initGL(); }catch(e){
-  statusEl.textContent='⚠ WebGL 初期化に失敗: '+e.message+'\n(https/localhost推奨、ハードウェアアクセラ有効、GPU制限解除)';
-}
+try{ initGL(); }catch(e){ statusEl.textContent='⚠ WebGL 初期化に失敗: '+e.message+'\n(https/localhost推奨、ハードウェアアクセラ有効)'; }
 
-/* ===== 画像: ボタン & D&D ===== */
+/* ===== 画像 I/O ===== */
 const fileInput = document.getElementById('img');
 document.getElementById('reset').onclick = ()=>{ img2D=null; if(gl && tex){ gl.uniform1f(prog.uHasTex,0.0); } statusEl.textContent='画像クリア'; };
 fileInput.addEventListener('change', (e)=>{
@@ -181,10 +191,10 @@ fileInput.addEventListener('change', (e)=>{
   img.src = url;
 });
 let dragDepth = 0;
-window.addEventListener('dragenter', e=>{e.preventDefault(); dragDepth++; statusEl.textContent='⇩ ここに画像をドロップ';});
-window.addEventListener('dragover',  e=>{e.preventDefault();});
-window.addEventListener('dragleave', e=>{e.preventDefault(); dragDepth=Math.max(0,dragDepth-1); if(!dragDepth) statusEl.textContent='稼働中 — 画像はボタンかD&Dで';});
-window.addEventListener('drop', e=>{
+addEventListener('dragenter', e=>{e.preventDefault(); dragDepth++; statusEl.textContent='⇩ ここに画像をドロップ';});
+addEventListener('dragover',  e=>{e.preventDefault();});
+addEventListener('dragleave', e=>{e.preventDefault(); dragDepth=Math.max(0,dragDepth-1); if(!dragDepth) statusEl.textContent='稼働中 — 画像はボタンかD&Dで';});
+addEventListener('drop', e=>{
   e.preventDefault(); dragDepth=0;
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
   if(f && f.type.startsWith('image/')){
@@ -193,12 +203,10 @@ window.addEventListener('drop', e=>{
     img.onload = ()=>{ makeTextureFromImage(img); URL.revokeObjectURL(url); };
     img.onerror = ()=>{ statusEl.textContent='❌ 画像を読み込めませんでした'; };
     img.src = url;
-  }else{
-    statusEl.textContent='ℹ 画像ファイルをドロップしてください';
-  }
+  }else{ statusEl.textContent='ℹ 画像ファイルをドロップしてください'; }
 });
 
-/* ===== チャイム：タップ/シェイク ===== */
+/* ===== チャイム（タップ/シェイク） ===== */
 const chimeEl = document.getElementById('chime');
 let lastPlay = 0;
 async function enableAudioSensors(){
@@ -208,18 +216,13 @@ async function enableAudioSensors(){
     }
     try{ await chimeEl.play(); chimeEl.pause(); chimeEl.currentTime = 0; }catch(e){}
     statusEl.textContent='🔊 有効化：タップ/シェイクでチャイム、音楽も再生可';
-  }catch(err){
-    statusEl.textContent='❌ 音の初期化失敗: '+err.message;
-  }
+  }catch(err){ statusEl.textContent='❌ 音の初期化失敗: '+err.message; }
 }
 document.getElementById('enable').onclick = enableAudioSensors;
-function playChime(){
-  const now=performance.now(); if(now-lastPlay<300) return; lastPlay=now;
-  chimeEl.currentTime = 0; chimeEl.play().catch(()=>{});
-}
+function playChime(){ const now=performance.now(); if(now-lastPlay<300) return; lastPlay=now; chimeEl.currentTime=0; chimeEl.play().catch(()=>{}); }
 canvas.addEventListener('pointerdown', playChime);
 let lastA={x:0,y:0,z:0}, lastT=0;
-window.addEventListener('devicemotion',(e)=>{
+addEventListener('devicemotion',(e)=>{
   const a=e.accelerationIncludingGravity||{x:0,y:0,z:0};
   const dx=a.x-lastA.x, dy=a.y-lastA.y, dz=a.z-lastA.z; lastA=a;
   const mag=Math.sqrt(dx*dx+dy*dy+dz*dz), t=performance.now();
@@ -230,7 +233,6 @@ window.addEventListener('devicemotion',(e)=>{
 const musicInput = document.getElementById('music');
 const player = document.getElementById('player');
 const playBtn = document.getElementById('play');
-
 musicInput.addEventListener('change', e=>{
   const f = e.target.files && e.target.files[0]; if(!f) return;
   const url = URL.createObjectURL(f);
